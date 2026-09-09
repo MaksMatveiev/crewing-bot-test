@@ -1,0 +1,18 @@
+# Render Blueprint: один веб-сервис с крюинг-ботом.
+# Переменные задаются в дашборде Render (sync: false) и в git не попадают.
+services:
+  - type: web
+    name: crewing-ai
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python crewing_bot/app.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.6"
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: RECRUITER_PASSWORD
+        sync: false

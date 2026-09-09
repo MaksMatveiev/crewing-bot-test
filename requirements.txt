@@ -1,0 +1,7 @@
+# Крюинг-бот: зависимости
+
+python-dotenv>=1.0     # чтение .env
+openai>=1.40           # клиент к Gemini (OpenAI-совместимый API)
+gradio>=6.0            # веб-интерфейс: чат кандидата и вкладка рекрутера
+psycopg2-binary>=2.9   # Postgres (Supabase)
+pytest>=8.0            # тесты

@@ -1,0 +1,137 @@
+"""Четыре вызова модели: Router, Structured Output, RAG-ответ, Judge.
+
+У каждой функции есть параметр ask — так тесты подставляют свою
+функцию и проверяют разбор ответа, не ходя в сеть.
+"""
+
+import json
+import os
+
+from openai import OpenAI
+
+MODEL = "gemini-2.5-flash"
+BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
+
+class ModelUnavailable(str):
+    """Ответ-заглушка: модель недоступна.
+
+    Ведёт себя как обычная строка (её можно показать человеку), но
+    вызывающий код отличает её от настоящего ответа через is_unavailable
+    и не двигает воронку на сбое модели.
+    """
+
+    __slots__ = ()
+
+
+class UnavailableFields(dict):
+    """Пустой результат extract, помеченный как недоступность модели.
+
+    Пустой словарь от модели («в сообщении ничего нет») и пустой словарь
+    из-за сбоя — разные вещи, и app.py должен их различать.
+    """
+
+    __slots__ = ()
+
+
+def is_unavailable(value) -> bool:
+    """Ответ получен из-за сбоя модели, а не от самой модели?"""
+    return isinstance(value, (ModelUnavailable, UnavailableFields))
+
+
+def ask_model(prompt: str, system: str = "Ты — помощник крюингового агентства.") -> str:
+    key = os.getenv("GOOGLE_API_KEY")
+    if not key or "..." in key:
+        return ModelUnavailable("⚠️ Нет GOOGLE_API_KEY в .env")
+    try:
+        client = OpenAI(api_key=key, base_url=BASE_URL)
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        content = response.choices[0].message.content
+        # Если модель вернула пустой ответ (None или пустую строку),
+        # возвращаем помеченное предупреждение, а не None, чтобы не ронять
+        # бота и чтобы вызывающий код увидел сбой, а не «ответ модели».
+        if not content:
+            return ModelUnavailable("⚠️ Модель вернула пустой ответ")
+        return content
+    except Exception as error:
+        return ModelUnavailable(f"⚠️ Модель не отвечает: {error}")
+
+
+def classify(message: str, current_question: str, *, ask=ask_model) -> str:
+    """Router: кандидат отвечает на вопрос анкеты или задаёт свой?
+
+    При любом непонятном ответе модели считаем, что это ответ по анкете:
+    так воронка продолжается, а не встаёт. А вот сбой модели наружу
+    возвращается как есть — воронку двигать нельзя.
+    """
+    reply = ask(
+        "Кандидату задали вопрос анкеты. Он ответил на него или задал встречный "
+        "вопрос про вакансию? Верни ОДНО слово: ответ или вопрос.\n\n"
+        f"Вопрос анкеты: {current_question}\nСообщение кандидата: {message}"
+    )
+    if is_unavailable(reply):
+        return reply
+    return "вопрос" if "вопрос" in reply.strip().lower() else "ответ"
+
+
+def extract(message: str, fields: list, *, ask=ask_model) -> dict:
+    """Structured Output: свободный текст → словарь только запрошенных полей."""
+    reply = ask(
+        "Извлеки из сообщения перечисленные поля. Верни СТРОГО JSON-объект, "
+        "только его, без пояснений. Чего нет в сообщении — не включай.\n\n"
+        f"Поля: {', '.join(fields)}\nСообщение: {message}"
+    )
+    if is_unavailable(reply):
+        return UnavailableFields()
+    start, end = reply.find("{"), reply.rfind("}")
+    if start == -1 or end == -1:
+        return {}
+    try:
+        parsed = json.loads(reply[start:end + 1])
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {name: value for name, value in parsed.items() if name in fields}
+
+
+def answer(message: str, knowledge: str, vacancy_text: str, *, ask=ask_model) -> str:
+    """RAG: ответ на встречный вопрос строго по фактам агентства и вакансии."""
+    return ask(
+        "Ответь кратко на вопрос кандидата ТОЛЬКО по фактам ниже. "
+        "Факта нет — честно скажи, что уточнит менеджер. "
+        "Отвечай на языке вопроса.\n\n"
+        f"ФАКТЫ АГЕНТСТВА:\n{knowledge}\n\nВАКАНСИЯ:\n{vacancy_text}\n\n"
+        f"Вопрос: {message}"
+    )
+
+
+# Персональные данные, которые для оценки кандидата под вакансию не нужны,
+# а значит и уходить в промпт модели не должны.
+PERSONAL_FIELDS = ("full_name", "contact")
+
+
+def verdict(vacancy: dict, profile: dict, screening: dict, *, ask=ask_model) -> str:
+    """Judge: короткая оценка кандидата для рекрутера. Решение принимает человек.
+
+    ФИО и контакт в промпт не попадают: для сравнения опыта с требованиями
+    вакансии они бесполезны, а отдавать их модели незачем.
+    """
+    impersonal = {
+        name: value for name, value in profile.items() if name not in PERSONAL_FIELDS
+    }
+    return ask(
+        "Оцени кандидата под вакансию для крюинг-менеджера. Два-три предложения: "
+        "подходит или нет и почему. Не отказывай кандидату — это заметка "
+        "для менеджера, решение принимает он.\n\n"
+        f"ВАКАНСИЯ: {vacancy.get('rank')} на {vacancy.get('vessel_type')}. "
+        f"Требования: {vacancy.get('requirements')}\n\n"
+        f"АНКЕТА: {json.dumps(impersonal, ensure_ascii=False)}\n\n"
+        f"СКРИНИНГ: {json.dumps(screening, ensure_ascii=False)}"
+    )
