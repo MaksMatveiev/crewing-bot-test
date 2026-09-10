@@ -363,3 +363,34 @@ def test_failed_init_is_not_remembered_as_success(conn, monkeypatch):
     monkeypatch.undo()
     db.init_schema(conn, force=True)
     assert db._schema_ready is True
+
+
+def test_application_gets_telegram_token(conn):
+    vacancy_id = _vacancy(conn)
+    slot_id = _future_slots(conn)[0]
+    candidate_id = db.upsert_candidate(conn, "Petrov Petr", "petrov@example.com", "Ukraine")
+    db.book_slot(conn, slot_id)
+    application_id = db.create_application(
+        conn, candidate_id, vacancy_id, slot_id, _profile(), {"STCW?": "да"}
+    )
+
+    token = db.application_token(conn, application_id)
+    assert token
+    assert len(token) >= 16
+
+
+def test_tokens_of_two_applications_differ(conn):
+    vacancy_id = _vacancy(conn)
+    slots = _future_slots(conn, 2)
+    first_candidate = db.upsert_candidate(conn, "A A", "a@example.com", "Ukraine")
+    second_candidate = db.upsert_candidate(conn, "B B", "b@example.com", "Ukraine")
+    db.book_slot(conn, slots[0])
+    db.book_slot(conn, slots[1])
+    first = db.create_application(conn, first_candidate, vacancy_id, slots[0], _profile(), {})
+    second = db.create_application(conn, second_candidate, vacancy_id, slots[1], _profile(), {})
+
+    assert db.application_token(conn, first) != db.application_token(conn, second)
+
+
+def test_application_token_of_unknown_id_is_none(conn):
+    assert db.application_token(conn, 999999) is None

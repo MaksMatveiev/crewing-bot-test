@@ -7,6 +7,7 @@
 
 import json
 import os
+import secrets
 from datetime import date, datetime, timedelta
 
 import psycopg2
@@ -136,6 +137,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS candidates_contact_lower
     ON candidates (lower(contact))
 """
 
+# Колонки для Telegram добавляются отдельно от SCHEMA: таблица applications
+# у работающих проектов уже создана, а CREATE TABLE IF NOT EXISTS её не
+# меняет. UNIQUE по nullable-колонке в Postgres допускает сколько угодно
+# NULL — заявки, созданные до появления фичи, останутся без кода.
+COLUMN_MIGRATIONS = (
+    "ALTER TABLE applications ADD COLUMN IF NOT EXISTS telegram_token TEXT",
+    "ALTER TABLE applications ADD COLUMN IF NOT EXISTS telegram_chat_id BIGINT",
+    "CREATE UNIQUE INDEX IF NOT EXISTS applications_telegram_token"
+    " ON applications (telegram_token)",
+)
+
 # Схема одна на процесс: init_schema вызывается на каждый ход диалога и на
 # каждое действие рекрутера, а создавать таблицы и гонять миграцию на каждое
 # сообщение — лишняя нагрузка на базу и лишний повод упасть на горячем пути.
@@ -167,6 +179,8 @@ def init_schema(conn, force: bool = False) -> None:
         return
     with conn, conn.cursor() as cur:
         cur.execute(SCHEMA)
+        for statement in COLUMN_MIGRATIONS:
+            cur.execute(statement)
         for statement in MIGRATIONS:
             cur.execute(statement)
         cur.execute(CONTACT_INDEX)
@@ -340,12 +354,17 @@ def find_active_application(conn, contact: str):
 def create_application(conn, candidate_id: int, vacancy_id: int, slot_id: int,
                        profile: dict, screening: dict, notes: str = "") -> int:
     """Сохранить заявку. Вердикт дописывается позже отдельным запросом:
-    отказ модели на последнем шаге не должен стоить кандидату брони."""
+    отказ модели на последнем шаге не должен стоить кандидату брони.
+
+    Код для ссылки в Telegram рождается здесь же, одной операцией с
+    заявкой: если заявка есть — код у неё есть всегда.
+    """
     with conn, conn.cursor() as cur:
         cur.execute(
             "INSERT INTO applications (candidate_id, vacancy_id, slot_id,"
             " rank_experience_months, total_experience_months, vessel_types,"
-            " readiness_date, screening, notes) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+            " readiness_date, screening, notes, telegram_token)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
             " RETURNING id",
             (
                 candidate_id, vacancy_id, slot_id,
@@ -355,6 +374,7 @@ def create_application(conn, candidate_id: int, vacancy_id: int, slot_id: int,
                 profile.get("readiness_date"),
                 json.dumps(screening, ensure_ascii=False),
                 notes,
+                secrets.token_urlsafe(16),
             ),
         )
         return cur.fetchone()[0]
@@ -374,6 +394,17 @@ def set_verdict(conn, application_id: int, verdict: str) -> None:
             "UPDATE applications SET verdict = %s WHERE id = %s",
             (verdict, application_id),
         )
+
+
+def application_token(conn, application_id: int):
+    """Код заявки для ссылки в Telegram. None, если заявки нет."""
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT telegram_token FROM applications WHERE id = %s",
+            (application_id,),
+        )
+        row = cur.fetchone()
+        return row[0] if row else None
 
 
 def list_applications(conn, limit: int = 50) -> list:
