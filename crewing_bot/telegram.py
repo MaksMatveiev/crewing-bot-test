@@ -40,8 +40,8 @@ def parse_start(update: dict):
     if not isinstance(message, dict):
         return None
     text = message.get("text")
-    chat = message.get("chat") or {}
-    chat_id = chat.get("id")
+    chat = message.get("chat")
+    chat_id = chat.get("id") if isinstance(chat, dict) else None
     if not isinstance(text, str) or chat_id is None:
         return None
     parts = text.split()
@@ -78,14 +78,14 @@ def send_message(chat_id: int, text: str, *, opener=None) -> bool:
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
         return False
-    payload = json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8")
-    request = urllib.request.Request(
-        API.format(token=token),
-        data=payload,
-        headers={"Content-Type": "application/json"},
-    )
-    send = opener or urllib.request.urlopen
     try:
+        payload = json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8")
+        request = urllib.request.Request(
+            API.format(token=token),
+            data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        send = opener or urllib.request.urlopen
         with send(request, timeout=10) as response:
             return 200 <= response.status < 300
     except Exception:

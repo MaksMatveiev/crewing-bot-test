@@ -76,3 +76,26 @@ def test_send_message_reports_failure_instead_of_raising(monkeypatch):
         raise OSError("сеть недоступна")
 
     assert telegram.send_message(555, "текст", opener=broken_opener) is False
+
+
+def test_parse_start_ignores_string_chat():
+    # Мусорный апдейт: chat — строка вместо словаря. Раньше `chat.get("id")`
+    # падал с AttributeError, теперь должен просто возвращать None.
+    assert telegram.parse_start({"message": {"chat": "555", "text": "/start abc"}}) is None
+
+
+def test_parse_start_ignores_numeric_chat():
+    # Мусорный апдейт: chat — число вместо словаря.
+    assert telegram.parse_start({"message": {"chat": 555, "text": "/start abc"}}) is None
+
+
+def test_parse_start_ignores_list_chat():
+    # Мусорный апдейт: chat — список вместо словаря.
+    assert telegram.parse_start({"message": {"chat": [555], "text": "/start abc"}}) is None
+
+
+def test_send_message_returns_false_on_unserializable_text(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+    # text — объект, который json.dumps не умеет сериализовать: TypeError
+    # должен быть перехвачен внутри send_message, а не улететь наружу.
+    assert telegram.send_message(555, object()) is False
