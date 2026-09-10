@@ -9,7 +9,7 @@ import os
 
 from openai import OpenAI
 
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-3.6-flash"
 BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
 
