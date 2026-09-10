@@ -394,3 +394,42 @@ def test_tokens_of_two_applications_differ(conn):
 
 def test_application_token_of_unknown_id_is_none(conn):
     assert db.application_token(conn, 999999) is None
+
+
+def _application_with_token(conn, contact="petrov@example.com"):
+    vacancy_id = _vacancy(conn)
+    slot_id = _future_slots(conn)[0]
+    candidate_id = db.upsert_candidate(conn, "Petrov Petr", contact, "Ukraine")
+    db.book_slot(conn, slot_id)
+    application_id = db.create_application(
+        conn, candidate_id, vacancy_id, slot_id, _profile(contact=contact), {}
+    )
+    return application_id, db.application_token(conn, application_id)
+
+
+def test_find_application_by_token_returns_card_data(conn):
+    application_id, token = _application_with_token(conn)
+
+    found = db.find_application_by_token(conn, token)
+    assert found is not None
+    assert found["id"] == application_id
+    assert found["full_name"] == "Petrov Petr"
+    assert found["rank"] == "AB"
+    assert found["starts_at"] is not None
+    assert found["telegram_chat_id"] is None
+
+
+def test_unknown_token_finds_nothing(conn):
+    _application_with_token(conn)
+    assert db.find_application_by_token(conn, "нет-такого-кода") is None
+
+
+def test_first_chat_is_bound_and_second_is_refused(conn):
+    application_id, _ = _application_with_token(conn)
+
+    assert db.bind_telegram_chat(conn, application_id, 111) is True
+    assert db.bind_telegram_chat(conn, application_id, 222) is False
+
+    with conn, conn.cursor() as cur:
+        cur.execute("SELECT telegram_chat_id FROM applications WHERE id = %s", (application_id,))
+        assert cur.fetchone()[0] == 111

@@ -407,6 +407,44 @@ def application_token(conn, application_id: int):
         return row[0] if row else None
 
 
+def find_application_by_token(conn, token: str):
+    """Заявка по коду из ссылки. None, если код неизвестен.
+
+    Отдаёт ровно то, что нужно для карточки кандидату. Вердикта модели
+    здесь намеренно нет: это внутренняя заметка рекрутера.
+    """
+    if not token:
+        return None
+    with conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(
+            "SELECT a.id, a.telegram_chat_id, a.readiness_date,"
+            " c.full_name, c.contact, v.rank, v.vessel_type, s.starts_at"
+            " FROM applications a"
+            " JOIN candidates c ON c.id = a.candidate_id"
+            " JOIN vacancies v ON v.id = a.vacancy_id"
+            " JOIN slots s ON s.id = a.slot_id"
+            " WHERE a.telegram_token = %s",
+            (token,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def bind_telegram_chat(conn, application_id: int, chat_id: int) -> bool:
+    """Привязать чат к заявке. False означает, что чат уже был привязан.
+
+    Условие telegram_chat_id IS NULL прямо в UPDATE: первый, кто открыл
+    ссылку, становится её владельцем, и подменить его нельзя.
+    """
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE applications SET telegram_chat_id = %s"
+            " WHERE id = %s AND telegram_chat_id IS NULL RETURNING id",
+            (chat_id, application_id),
+        )
+        return cur.fetchone() is not None
+
+
 def list_applications(conn, limit: int = 50) -> list:
     with conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(
