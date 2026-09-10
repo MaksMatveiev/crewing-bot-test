@@ -5,6 +5,7 @@
 """
 
 import hmac
+import logging
 import os
 import re
 import sys
@@ -15,9 +16,11 @@ import gradio as gr
 from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from crewing_bot import brain, db, funnel
+from crewing_bot import brain, db, funnel, telegram
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 KNOWLEDGE = (Path(__file__).parent / "knowledge.md").read_text(encoding="utf-8")
 
@@ -347,9 +350,23 @@ def _handle_slot_choice(conn, message: str, state, vacancy):
 
     when = next((slot["starts_at"] for slot in slots if slot["id"] == chosen.slot_id), None)
     when_text = when.strftime("%d.%m в %H:%M UTC") if when else "выбранное время"
+    confirmation = (f"✅ Записал вас на интервью {when_text}. "
+                    "Менеджер свяжется с вами по указанному контакту.")
+
+    # Ссылка на Telegram — необязательное дополнение. Не настроен бот или
+    # код почему-то не достался — просто подтверждаем бронь без ссылки.
+    try:
+        link = telegram.deep_link(db.application_token(conn, application_id))
+    except Exception:
+        link = None
+    if link:
+        confirmation += (
+            "\n\nХотите получить эту заявку в Telegram? "
+            f"Откройте ссылку и нажмите «Начать»:\n{link}"
+        )
+
     chosen = funnel.confirm(chosen)
-    return (f"✅ Записал вас на интервью {when_text}. "
-            "Менеджер свяжется с вами по указанному контакту."), vars(chosen)
+    return confirmation, vars(chosen)
 
 
 def candidate_chat(message, history, state_dict):
@@ -572,8 +589,107 @@ def build_ui():
     return demo
 
 
+def handle_telegram_update(update: dict, *, conn) -> str:
+    """Обработать апдейт от Telegram. Возвращает слово-решение.
+
+    Разделено с транспортом нарочно: вся логика проверяется тестами без
+    сети и без веб-сервера.
+    """
+    parsed = telegram.parse_start(update)
+    if not parsed:
+        return "ignored"
+    chat_id, token = parsed
+
+    application = db.find_application_by_token(conn, token)
+    if not application:
+        telegram.send_message(
+            chat_id,
+            "Ссылка не найдена или устарела. Запишитесь на интервью заново.",
+        )
+        return "unknown"
+
+    owner = application.get("telegram_chat_id")
+    if owner is None:
+        # bind_telegram_chat вернёт False, если между чтением owner и этим
+        # UPDATE чат уже успел привязать кто-то другой (гонка при двух
+        # одновременных Start с одним кодом). Тогда владелец — не мы, и
+        # дальше действуем так же, как с изначально чужим чатом.
+        is_foreign = not db.bind_telegram_chat(conn, application["id"], chat_id)
+    else:
+        is_foreign = owner != chat_id
+
+    if is_foreign:
+        # Ссылку могли переслать или заскринить. Чужому её содержимое
+        # не показываем: там ФИО и контакт живого человека.
+        telegram.send_message(
+            chat_id,
+            "Эта ссылка выдана другому кандидату. Запишитесь на интервью сами — "
+            "и получите свою заявку.",
+        )
+        return "foreign"
+
+    telegram.send_message(chat_id, telegram.build_card(application))
+    return "sent"
+
+
+def build_app():
+    """Веб-приложение: чат Gradio на / и приём сообщений Telegram.
+
+    Telegram умеет только вебхук на публичный адрес. Опрос (polling) на
+    бесплатном хостинге не годится: пока сервис спит, опрашивать некому,
+    и нажатие Start потерялось бы навсегда. Запрос вебхука сервис будит.
+    """
+    import gradio as gr
+    from fastapi import FastAPI, Request, Response
+
+    # /docs, /redoc и /openapi.json отключены: адрес публичный, и
+    # незачем публиковать инвентарь маршрутов бота.
+    api = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @api.post("/telegram/webhook")
+    async def telegram_webhook(request: Request):
+        secret = os.getenv("TELEGRAM_WEBHOOK_SECRET")
+        header = request.headers.get("x-telegram-bot-api-secret-token")
+        # Сравниваем байты постоянным по времени способом — как и пароль
+        # рекрутера в check_password (compare_digest не работает со
+        # строками с не-ASCII символами, поэтому сначала кодируем в utf-8).
+        if not secret or not hmac.compare_digest(
+            str(header or "").encode("utf-8"), str(secret).encode("utf-8")
+        ):
+            # Адрес публичный. Без этой проверки любой мог бы слать
+            # поддельные апдейты и подбирать чужие коды заявок.
+            return Response(status_code=403)
+
+        try:
+            update = await request.json()
+        except Exception:
+            return {"ok": True}
+
+        conn = None
+        try:
+            conn = db.connect()
+            db.init_schema(conn)
+            handle_telegram_update(update, conn=conn)
+        except Exception:
+            # Отвечаем 200 в любом случае: иначе Telegram будет
+            # повторять доставку часами. Но след в логе оставляем: без
+            # этого расследовать «карточки не приходят» будет нечем.
+            # Апдейт и текст сообщений кандидата в лог не попадают —
+            # только факт сбоя и трассировка исключения.
+            logger.exception("Ошибка обработки апдейта Telegram-вебхука")
+        finally:
+            if conn is not None:
+                conn.close()
+        return {"ok": True}
+
+    return gr.mount_gradio_app(api, build_ui(), path="/")
+
+
 if __name__ == "__main__":
-    build_ui().launch(
-        server_name="0.0.0.0",
-        server_port=int(os.environ.get("PORT", 7861)),
+    import uvicorn
+
+    uvicorn.run(
+        build_app(),
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 7861)),
     )

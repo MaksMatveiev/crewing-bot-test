@@ -120,6 +120,9 @@ class FakeDB:
             raise RuntimeError("обрыв соединения")
         self.verdicts.append((application_id, verdict))
 
+    def application_token(self, conn, application_id):
+        return "TESTTOKEN123456"
+
 
 class FakeBrain:
     """Заглушка модели.
@@ -187,7 +190,13 @@ def _to_slot_list():
 
 # --- сценарий 1: счастливый путь -------------------------------------------
 
-def test_happy_path_confirms_booking(bot):
+def _run_funnel_to_booking(monkeypatch):
+    """Пройти воронку целиком и вернуть текст подтверждения брони."""
+    fake_db, fake_brain = FakeDB(), FakeBrain()
+    monkeypatch.setattr(app, "db", fake_db)
+    monkeypatch.setattr(app, "brain", fake_brain)
+    bot = types.SimpleNamespace(db=fake_db, brain=fake_brain)
+
     reply, state = _to_slot_list()
     assert "1." in reply and "UTC" in reply
 
@@ -200,6 +209,26 @@ def test_happy_path_confirms_booking(bot):
     assert bot.db.booked == [FIRST_SLOT_ID]
     assert bot.db.released == []
     assert bot.db.verdicts == [(42, "Подходит.")]
+    return reply
+
+
+def test_happy_path_confirms_booking(monkeypatch):
+    _run_funnel_to_booking(monkeypatch)
+
+
+def test_confirmation_has_telegram_link_when_configured(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+    monkeypatch.setenv("TELEGRAM_BOT_USERNAME", "crewing_test_bot")
+    reply = _run_funnel_to_booking(monkeypatch)
+    assert "t.me/crewing_test_bot?start=" in reply
+
+
+def test_confirmation_has_no_link_when_not_configured(monkeypatch):
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_BOT_USERNAME", raising=False)
+    reply = _run_funnel_to_booking(monkeypatch)
+    assert "t.me" not in reply
+    assert "Записал вас на интервью" in reply
 
 
 # --- сценарий 2: сбой при создании заявки ----------------------------------
@@ -463,3 +492,110 @@ def test_broken_schema_init_does_not_crash_recruiter_tab(bot, fresh_attempts):
     assert app.recruiter_open_slots(
         "s3cret", "2026-10-01", "10:00", "11:00", 30
     ) == app.DB_SETUP_FAILED_TEXT
+
+
+# --- вебхук Telegram ---------------------------------------------------------
+
+class _TelegramFakeDB:
+    def __init__(self, application):
+        self.application = application
+        self.bound = []
+        self.sent = []
+
+    def find_application_by_token(self, conn, token):
+        return self.application if token == "GOODTOKEN" else None
+
+    def bind_telegram_chat(self, conn, application_id, chat_id):
+        already = self.application.get("telegram_chat_id")
+        if already is None:
+            self.application["telegram_chat_id"] = chat_id
+            self.bound.append(chat_id)
+            return True
+        return False
+
+
+def _telegram_application():
+    from datetime import datetime, timezone
+    return {
+        "id": 7, "telegram_chat_id": None, "readiness_date": "2026-10-01",
+        "full_name": "Petrov Petr", "contact": "petrov@example.com",
+        "rank": "AB", "vessel_type": "container",
+        "starts_at": datetime(2026, 9, 11, 10, 0, tzinfo=timezone.utc),
+    }
+
+
+def _patch_telegram(monkeypatch, fake_db, sent):
+    monkeypatch.setattr(app.db, "find_application_by_token", fake_db.find_application_by_token)
+    monkeypatch.setattr(app.db, "bind_telegram_chat", fake_db.bind_telegram_chat)
+    monkeypatch.setattr(app.telegram, "send_message", lambda chat_id, text, **kw: sent.append((chat_id, text)) or True)
+
+
+def test_start_with_valid_token_sends_card(monkeypatch):
+    fake_db, sent = _TelegramFakeDB(_telegram_application()), []
+    _patch_telegram(monkeypatch, fake_db, sent)
+
+    update = {"message": {"chat": {"id": 555}, "text": "/start GOODTOKEN"}}
+    assert app.handle_telegram_update(update, conn=None) == "sent"
+    assert sent and sent[0][0] == 555
+    assert "Petrov Petr" in sent[0][1]
+
+
+def test_same_chat_gets_card_again(monkeypatch):
+    application = _telegram_application()
+    application["telegram_chat_id"] = 555
+    fake_db, sent = _TelegramFakeDB(application), []
+    _patch_telegram(monkeypatch, fake_db, sent)
+
+    update = {"message": {"chat": {"id": 555}, "text": "/start GOODTOKEN"}}
+    assert app.handle_telegram_update(update, conn=None) == "sent"
+    assert len(sent) == 1
+
+
+def test_foreign_chat_gets_no_card(monkeypatch):
+    application = _telegram_application()
+    application["telegram_chat_id"] = 111
+    fake_db, sent = _TelegramFakeDB(application), []
+    _patch_telegram(monkeypatch, fake_db, sent)
+
+    update = {"message": {"chat": {"id": 999}, "text": "/start GOODTOKEN"}}
+    assert app.handle_telegram_update(update, conn=None) == "foreign"
+    # Карточку (ФИО, контакт) чужому не показываем — но по приоритету 4
+    # из ТЗ ему всё равно причитается вежливый отказ, а не полное молчание.
+    assert all("Petrov" not in text for _, text in sent)
+
+
+def test_unknown_token_sends_nothing_useful(monkeypatch):
+    fake_db, sent = _TelegramFakeDB(_telegram_application()), []
+    _patch_telegram(monkeypatch, fake_db, sent)
+
+    update = {"message": {"chat": {"id": 555}, "text": "/start НЕТТАКОГО"}}
+    assert app.handle_telegram_update(update, conn=None) == "unknown"
+    assert all("Petrov" not in text for _, text in sent)
+
+
+def test_unrelated_update_is_ignored(monkeypatch):
+    fake_db, sent = _TelegramFakeDB(_telegram_application()), []
+    _patch_telegram(monkeypatch, fake_db, sent)
+
+    assert app.handle_telegram_update({"message": {"chat": {"id": 5}, "text": "привет"}}, conn=None) == "ignored"
+    assert sent == []
+
+
+class _RaceLosingFakeDB(_TelegramFakeDB):
+    """Имитирует гонку: владельца формально ещё нет, но UPDATE в базе
+    его уже назначил кто-то другой — bind_telegram_chat возвращает False."""
+
+    def bind_telegram_chat(self, conn, application_id, chat_id):
+        return False
+
+
+def test_lost_bind_race_gets_no_card(monkeypatch):
+    # Два одновременных Start с одним кодом: проверка «владельца ещё нет»
+    # проходит у обоих, но UPDATE с условием telegram_chat_id IS NULL
+    # выигрывает только один. Проигравший не должен получить карточку.
+    fake_db, sent = _RaceLosingFakeDB(_telegram_application()), []
+    _patch_telegram(monkeypatch, fake_db, sent)
+
+    update = {"message": {"chat": {"id": 555}, "text": "/start GOODTOKEN"}}
+    assert app.handle_telegram_update(update, conn=None) == "foreign"
+    assert all("Petrov" not in text for _, text in sent)
