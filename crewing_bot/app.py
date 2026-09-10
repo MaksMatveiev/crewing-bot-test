@@ -15,7 +15,7 @@ import gradio as gr
 from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from crewing_bot import brain, db, funnel
+from crewing_bot import brain, db, funnel, telegram
 
 load_dotenv()
 
@@ -347,9 +347,23 @@ def _handle_slot_choice(conn, message: str, state, vacancy):
 
     when = next((slot["starts_at"] for slot in slots if slot["id"] == chosen.slot_id), None)
     when_text = when.strftime("%d.%m в %H:%M UTC") if when else "выбранное время"
+    confirmation = (f"✅ Записал вас на интервью {when_text}. "
+                    "Менеджер свяжется с вами по указанному контакту.")
+
+    # Ссылка на Telegram — необязательное дополнение. Не настроен бот или
+    # код почему-то не достался — просто подтверждаем бронь без ссылки.
+    try:
+        link = telegram.deep_link(db.application_token(conn, application_id))
+    except Exception:
+        link = None
+    if link:
+        confirmation += (
+            "\n\nХотите получить эту заявку в Telegram? "
+            f"Откройте ссылку и нажмите «Начать»:\n{link}"
+        )
+
     chosen = funnel.confirm(chosen)
-    return (f"✅ Записал вас на интервью {when_text}. "
-            "Менеджер свяжется с вами по указанному контакту."), vars(chosen)
+    return confirmation, vars(chosen)
 
 
 def candidate_chat(message, history, state_dict):

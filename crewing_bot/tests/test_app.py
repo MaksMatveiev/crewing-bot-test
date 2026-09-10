@@ -120,6 +120,9 @@ class FakeDB:
             raise RuntimeError("обрыв соединения")
         self.verdicts.append((application_id, verdict))
 
+    def application_token(self, conn, application_id):
+        return "TESTTOKEN123456"
+
 
 class FakeBrain:
     """Заглушка модели.
@@ -187,7 +190,13 @@ def _to_slot_list():
 
 # --- сценарий 1: счастливый путь -------------------------------------------
 
-def test_happy_path_confirms_booking(bot):
+def _run_funnel_to_booking(monkeypatch):
+    """Пройти воронку целиком и вернуть текст подтверждения брони."""
+    fake_db, fake_brain = FakeDB(), FakeBrain()
+    monkeypatch.setattr(app, "db", fake_db)
+    monkeypatch.setattr(app, "brain", fake_brain)
+    bot = types.SimpleNamespace(db=fake_db, brain=fake_brain)
+
     reply, state = _to_slot_list()
     assert "1." in reply and "UTC" in reply
 
@@ -200,6 +209,26 @@ def test_happy_path_confirms_booking(bot):
     assert bot.db.booked == [FIRST_SLOT_ID]
     assert bot.db.released == []
     assert bot.db.verdicts == [(42, "Подходит.")]
+    return reply
+
+
+def test_happy_path_confirms_booking(monkeypatch):
+    _run_funnel_to_booking(monkeypatch)
+
+
+def test_confirmation_has_telegram_link_when_configured(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+    monkeypatch.setenv("TELEGRAM_BOT_USERNAME", "crewing_test_bot")
+    reply = _run_funnel_to_booking(monkeypatch)
+    assert "t.me/crewing_test_bot?start=" in reply
+
+
+def test_confirmation_has_no_link_when_not_configured(monkeypatch):
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_BOT_USERNAME", raising=False)
+    reply = _run_funnel_to_booking(monkeypatch)
+    assert "t.me" not in reply
+    assert "Записал вас на интервью" in reply
 
 
 # --- сценарий 2: сбой при создании заявки ----------------------------------
