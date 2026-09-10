@@ -12,7 +12,10 @@ from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-3.6-flash"
+# Квота бесплатного тарифа Google считается по каждой модели отдельно и
+# составляет 20 запросов в сутки. Лёгкая модель справляется с нашими задачами
+# (распознать вопрос, вытащить поля из текста) и отвечает быстрее.
+MODEL = "gemini-flash-lite-latest"
 BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
 
