@@ -586,8 +586,90 @@ def build_ui():
     return demo
 
 
+def handle_telegram_update(update: dict, *, conn) -> str:
+    """Обработать апдейт от Telegram. Возвращает слово-решение.
+
+    Разделено с транспортом нарочно: вся логика проверяется тестами без
+    сети и без веб-сервера.
+    """
+    parsed = telegram.parse_start(update)
+    if not parsed:
+        return "ignored"
+    chat_id, token = parsed
+
+    application = db.find_application_by_token(conn, token)
+    if not application:
+        telegram.send_message(
+            chat_id,
+            "Ссылка не найдена или устарела. Запишитесь на интервью заново.",
+        )
+        return "unknown"
+
+    owner = application.get("telegram_chat_id")
+    if owner is None:
+        db.bind_telegram_chat(conn, application["id"], chat_id)
+    elif owner != chat_id:
+        # Ссылку могли переслать или заскринить. Чужому её содержимое
+        # не показываем: там ФИО и контакт живого человека.
+        telegram.send_message(
+            chat_id,
+            "Эта ссылка выдана другому кандидату. Запишитесь на интервью сами — "
+            "и получите свою заявку.",
+        )
+        return "foreign"
+
+    telegram.send_message(chat_id, telegram.build_card(application))
+    return "sent"
+
+
+def build_app():
+    """Веб-приложение: чат Gradio на / и приём сообщений Telegram.
+
+    Telegram умеет только вебхук на публичный адрес. Опрос (polling) на
+    бесплатном хостинге не годится: пока сервис спит, опрашивать некому,
+    и нажатие Start потерялось бы навсегда. Запрос вебхука сервис будит.
+    """
+    import gradio as gr
+    from fastapi import FastAPI, Request, Response
+
+    api = FastAPI()
+
+    @api.post("/telegram/webhook")
+    async def telegram_webhook(request: Request):
+        secret = os.getenv("TELEGRAM_WEBHOOK_SECRET")
+        header = request.headers.get("x-telegram-bot-api-secret-token")
+        if not secret or header != secret:
+            # Адрес публичный. Без этой проверки любой мог бы слать
+            # поддельные апдейты и подбирать чужие коды заявок.
+            return Response(status_code=403)
+
+        try:
+            update = await request.json()
+        except Exception:
+            return {"ok": True}
+
+        conn = None
+        try:
+            conn = db.connect()
+            db.init_schema(conn)
+            handle_telegram_update(update, conn=conn)
+        except Exception:
+            # Отвечаем 200 в любом случае: иначе Telegram будет
+            # повторять доставку часами.
+            pass
+        finally:
+            if conn is not None:
+                conn.close()
+        return {"ok": True}
+
+    return gr.mount_gradio_app(api, build_ui(), path="/")
+
+
 if __name__ == "__main__":
-    build_ui().launch(
-        server_name="0.0.0.0",
-        server_port=int(os.environ.get("PORT", 7861)),
+    import uvicorn
+
+    uvicorn.run(
+        build_app(),
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 7861)),
     )
