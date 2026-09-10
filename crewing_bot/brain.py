@@ -5,9 +5,12 @@
 """
 
 import json
+import logging
 import os
 
 from openai import OpenAI
+
+logger = logging.getLogger(__name__)
 
 MODEL = "gemini-3.6-flash"
 BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
@@ -42,6 +45,7 @@ def is_unavailable(value) -> bool:
 def ask_model(prompt: str, system: str = "Ты — помощник крюингового агентства.") -> str:
     key = os.getenv("GOOGLE_API_KEY")
     if not key or "..." in key:
+        logger.error("Модель недоступна: GOOGLE_API_KEY не задан или содержит плейсхолдер")
         return ModelUnavailable("⚠️ Нет GOOGLE_API_KEY в .env")
     try:
         client = OpenAI(api_key=key, base_url=BASE_URL)
@@ -60,6 +64,8 @@ def ask_model(prompt: str, system: str = "Ты — помощник крюинг
             return ModelUnavailable("⚠️ Модель вернула пустой ответ")
         return content
     except Exception as error:
+        # Текст запроса в лог не пишем: там анкета кандидата.
+        logger.exception("Модель не ответила (%s)", type(error).__name__)
         return ModelUnavailable(f"⚠️ Модель не отвечает: {error}")
 
 

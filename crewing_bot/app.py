@@ -22,6 +22,14 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+# Вывод логов включаем явно: uvicorn настраивает только свои логгеры, а без
+# обработчика на корневом наши записи о сбоях никуда не попадут — и разбирать
+# жалобу «бот не отвечает» будет нечем.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
 KNOWLEDGE = (Path(__file__).parent / "knowledge.md").read_text(encoding="utf-8")
 
 
