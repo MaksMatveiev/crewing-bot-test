@@ -579,3 +579,23 @@ def test_unrelated_update_is_ignored(monkeypatch):
 
     assert app.handle_telegram_update({"message": {"chat": {"id": 5}, "text": "привет"}}, conn=None) == "ignored"
     assert sent == []
+
+
+class _RaceLosingFakeDB(_TelegramFakeDB):
+    """Имитирует гонку: владельца формально ещё нет, но UPDATE в базе
+    его уже назначил кто-то другой — bind_telegram_chat возвращает False."""
+
+    def bind_telegram_chat(self, conn, application_id, chat_id):
+        return False
+
+
+def test_lost_bind_race_gets_no_card(monkeypatch):
+    # Два одновременных Start с одним кодом: проверка «владельца ещё нет»
+    # проходит у обоих, но UPDATE с условием telegram_chat_id IS NULL
+    # выигрывает только один. Проигравший не должен получить карточку.
+    fake_db, sent = _RaceLosingFakeDB(_telegram_application()), []
+    _patch_telegram(monkeypatch, fake_db, sent)
+
+    update = {"message": {"chat": {"id": 555}, "text": "/start GOODTOKEN"}}
+    assert app.handle_telegram_update(update, conn=None) == "foreign"
+    assert all("Petrov" not in text for _, text in sent)

@@ -5,6 +5,7 @@
 """
 
 import hmac
+import logging
 import os
 import re
 import sys
@@ -18,6 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from crewing_bot import brain, db, funnel, telegram
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 KNOWLEDGE = (Path(__file__).parent / "knowledge.md").read_text(encoding="utf-8")
 
@@ -607,8 +610,15 @@ def handle_telegram_update(update: dict, *, conn) -> str:
 
     owner = application.get("telegram_chat_id")
     if owner is None:
-        db.bind_telegram_chat(conn, application["id"], chat_id)
-    elif owner != chat_id:
+        # bind_telegram_chat вернёт False, если между чтением owner и этим
+        # UPDATE чат уже успел привязать кто-то другой (гонка при двух
+        # одновременных Start с одним кодом). Тогда владелец — не мы, и
+        # дальше действуем так же, как с изначально чужим чатом.
+        is_foreign = not db.bind_telegram_chat(conn, application["id"], chat_id)
+    else:
+        is_foreign = owner != chat_id
+
+    if is_foreign:
         # Ссылку могли переслать или заскринить. Чужому её содержимое
         # не показываем: там ФИО и контакт живого человека.
         telegram.send_message(
@@ -632,13 +642,20 @@ def build_app():
     import gradio as gr
     from fastapi import FastAPI, Request, Response
 
-    api = FastAPI()
+    # /docs, /redoc и /openapi.json отключены: адрес публичный, и
+    # незачем публиковать инвентарь маршрутов бота.
+    api = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
     @api.post("/telegram/webhook")
     async def telegram_webhook(request: Request):
         secret = os.getenv("TELEGRAM_WEBHOOK_SECRET")
         header = request.headers.get("x-telegram-bot-api-secret-token")
-        if not secret or header != secret:
+        # Сравниваем байты постоянным по времени способом — как и пароль
+        # рекрутера в check_password (compare_digest не работает со
+        # строками с не-ASCII символами, поэтому сначала кодируем в utf-8).
+        if not secret or not hmac.compare_digest(
+            str(header or "").encode("utf-8"), str(secret).encode("utf-8")
+        ):
             # Адрес публичный. Без этой проверки любой мог бы слать
             # поддельные апдейты и подбирать чужие коды заявок.
             return Response(status_code=403)
@@ -655,8 +672,11 @@ def build_app():
             handle_telegram_update(update, conn=conn)
         except Exception:
             # Отвечаем 200 в любом случае: иначе Telegram будет
-            # повторять доставку часами.
-            pass
+            # повторять доставку часами. Но след в логе оставляем: без
+            # этого расследовать «карточки не приходят» будет нечем.
+            # Апдейт и текст сообщений кандидата в лог не попадают —
+            # только факт сбоя и трассировка исключения.
+            logger.exception("Ошибка обработки апдейта Telegram-вебхука")
         finally:
             if conn is not None:
                 conn.close()
