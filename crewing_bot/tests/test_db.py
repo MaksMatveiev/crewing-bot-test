@@ -433,3 +433,46 @@ def test_first_chat_is_bound_and_second_is_refused(conn):
     with conn, conn.cursor() as cur:
         cur.execute("SELECT telegram_chat_id FROM applications WHERE id = %s", (application_id,))
         assert cur.fetchone()[0] == 111
+
+
+# --- подбор вакансий по должности и типу флота ---
+
+def _three_vacancies(conn):
+    db.create_vacancy(conn, "2nd Engineer", "bulk carrier", 6, 6500, "опыт", ["STCW?"])
+    db.create_vacancy(conn, "2nd Engineer", "tanker", 4, 7200, "опыт", ["STCW?"])
+    db.create_vacancy(conn, "AB", "tanker", 9, 1800, "опыт", ["STCW?"])
+
+
+def test_open_ranks_are_listed_without_duplicates(conn):
+    _three_vacancies(conn)
+    assert db.list_open_ranks(conn) == ["2nd Engineer", "AB"]
+
+
+def test_vessel_types_are_limited_to_chosen_rank(conn):
+    _three_vacancies(conn)
+    assert db.list_open_vessel_types(conn, "2nd Engineer") == ["bulk carrier", "tanker"]
+    assert db.list_open_vessel_types(conn, "AB") == ["tanker"]
+
+
+def test_vacancies_are_filtered_by_rank_and_vessel(conn):
+    _three_vacancies(conn)
+    found = db.list_active_vacancies(conn, rank="2nd Engineer", vessel_type="tanker")
+    assert len(found) == 1
+    assert found[0]["salary_usd"] == 7200
+
+
+def test_filter_without_matches_returns_empty(conn):
+    _three_vacancies(conn)
+    assert db.list_active_vacancies(conn, rank="AB", vessel_type="bulk carrier") == []
+
+
+def test_listing_without_filter_returns_everything(conn):
+    _three_vacancies(conn)
+    assert len(db.list_active_vacancies(conn)) == 3
+
+
+def test_inactive_vacancy_is_not_offered(conn):
+    _three_vacancies(conn)
+    with conn, conn.cursor() as cur:
+        cur.execute("UPDATE vacancies SET is_active = FALSE WHERE rank = %s", ("AB",))
+    assert db.list_open_ranks(conn) == ["2nd Engineer"]

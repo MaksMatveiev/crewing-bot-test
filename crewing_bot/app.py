@@ -125,6 +125,55 @@ def _open_conn():
     return conn, None
 
 
+GREETING_TEXT = (
+    "Здравствуйте! Я помощник крюингового агентства. "
+    "Подберу вакансию и запишу на интервью.\n\n"
+    "На какую должность смотрите? Ответьте номером или названием:"
+)
+
+
+def render_options(options) -> str:
+    """Нумерованный список вариантов — должностей или типов судов."""
+    return "\n".join(f"{number}. {value}"
+                     for number, value in enumerate(options, start=1))
+
+
+def opening_message():
+    """Первое сообщение бота — показывается при открытии страницы.
+
+    Раньше кандидат писал «привет» впустую: бот отвечал списком вакансий,
+    а само сообщение пропадало. Теперь разговор начинает бот и сразу
+    спрашивает должность.
+
+    Отказ базы здесь не должен оставлять человека перед пустым экраном,
+    поэтому любая ошибка превращается в понятный текст.
+    """
+    empty = vars(funnel.State())
+    try:
+        conn = db.connect()
+    except RuntimeError as error:
+        return f"⚠️ {error}", empty
+
+    try:
+        if not _ensure_schema(conn):
+            return DB_SETUP_FAILED_TEXT, empty
+        ranks = db.list_open_ranks(conn)
+    except Exception:
+        logger.exception("Не удалось собрать приветствие")
+        return DB_SETUP_FAILED_TEXT, empty
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    if not ranks:
+        return "Сейчас открытых вакансий нет. Загляните позже.", empty
+
+    state = funnel.offer_ranks(funnel.State(), ranks)
+    return GREETING_TEXT + "\n\n" + render_options(ranks), vars(state)
+
+
 def handle(message: str, state_dict: dict):
     """Один ход разговора: возвращает ответ бота и новое состояние."""
     state = funnel.State(**state_dict) if state_dict else funnel.State()
@@ -149,7 +198,9 @@ def handle(message: str, state_dict: dict):
 
 
 def _handle_with_db(conn, message: str, state):
-    vacancies = db.list_active_vacancies(conn)
+    # Список сужается выбранными должностью и типом флота, если они уже названы.
+    vacancies = db.list_active_vacancies(conn, state.wanted_rank or None,
+                                         state.wanted_vessel_type or None)
 
     if state.step == funnel.BLOCKED:
         return state.blocked_reason, vars(state)
@@ -157,16 +208,12 @@ def _handle_with_db(conn, message: str, state):
     if state.step == funnel.CONFIRMED:
         return "Вы уже записаны. Менеджер свяжется с вами перед интервью.", vars(state)
 
-    # Приветствие: показываем вакансии и ждём номер
+    # Приветствие обычно показывает opening_message при открытии страницы.
+    # Эта ветка — на случай, когда состояние пустое: перезагрузка вкладки,
+    # старая ссылка, вызов через API.
     if state.step == funnel.GREETING:
-        if not vacancies:
-            return "Сейчас открытых вакансий нет. Загляните позже.", vars(state)
-        state = funnel.State(step=funnel.CHOOSING_VACANCY)
-        return (
-            "Здравствуйте! Я помощник крюингового агентства. "
-            "Вот открытые вакансии — ответьте номером:\n\n"
-            + render_vacancies(vacancies)
-        ), vars(state)
+        text, fresh = opening_message()
+        return text, fresh
 
     vacancy = db.get_vacancy(conn, state.vacancy_id) if state.vacancy_id else None
     question, resume, resumed = _current_question(conn, state, vacancies)
@@ -182,6 +229,52 @@ def _handle_with_db(conn, message: str, state):
             # Модель молчит — воронку не двигаем, вопрос повторяем.
             return _model_down(resume), vars(resumed)
         return f"{reply}\n\n{resume}", vars(resumed)
+
+    if state.step == funnel.CHOOSING_RANK:
+        ranks = db.list_open_ranks(conn)
+        if not ranks:
+            return "Сейчас открытых вакансий нет. Загляните позже.", vars(state)
+        state = funnel.offer_ranks(state, ranks)
+        index = funnel.match_option(message, ranks)
+        if index is None:
+            return ("Не понял должность. Ответьте номером или названием:\n\n"
+                    + render_options(ranks)), vars(state)
+
+        state = funnel.select_rank(state, index)
+        types = db.list_open_vessel_types(conn, state.wanted_rank)
+        state = funnel.offer_vessel_types(state, types)
+        return (f"Отлично, {state.wanted_rank}.\n\n"
+                "На каком флоте хотите работать? Ответьте номером или названием:\n\n"
+                + render_options(types)), vars(state)
+
+    if state.step == funnel.CHOOSING_VESSEL_TYPE:
+        types = db.list_open_vessel_types(conn, state.wanted_rank)
+        if not types:
+            # Вакансии этой должности закрыли, пока человек думал.
+            ranks = db.list_open_ranks(conn)
+            state = funnel.offer_ranks(funnel.State(), ranks)
+            return ("По этой должности вакансий не осталось. "
+                    "Выберите другую:\n\n" + render_options(ranks)), vars(state)
+
+        state = funnel.offer_vessel_types(state, types)
+        index = funnel.match_option(message, types)
+        if index is None:
+            return ("Не понял тип флота. Ответьте номером или названием:\n\n"
+                    + render_options(types)), vars(state)
+
+        state = funnel.select_vessel_type(state, index)
+        matching = db.list_active_vacancies(conn, state.wanted_rank,
+                                            state.wanted_vessel_type)
+        if not matching:
+            # Сюда почти не попасть: типы взяты из тех же вакансий. Но если
+            # вакансию закрыли между двумя запросами — не заводим в тупик.
+            state = funnel.offer_vessel_types(state, types)
+            return ("По такому сочетанию вакансий нет. "
+                    "Выберите другой тип флота:\n\n" + render_options(types)), vars(state)
+
+        return (f"Вот что есть: {state.wanted_rank} на "
+                f"{state.wanted_vessel_type}. Ответьте номером:\n\n"
+                + render_vacancies(matching)), vars(state)
 
     if state.step == funnel.CHOOSING_VACANCY:
         number = _parse_number(message)
@@ -226,6 +319,16 @@ def _current_question(conn, state, vacancies):
     списку: свободные слоты берутся из базы заново, и запомненные id
     должны совпадать с номерами, которые увидит кандидат.
     """
+    if state.step == funnel.CHOOSING_RANK and state.rank_options:
+        listing = ("Вернёмся к выбору должности — ответьте номером:\n\n"
+                   + render_options(state.rank_options))
+        return listing, listing, state
+
+    if state.step == funnel.CHOOSING_VESSEL_TYPE and state.vessel_options:
+        listing = ("Вернёмся к выбору типа флота — ответьте номером:\n\n"
+                   + render_options(state.vessel_options))
+        return listing, listing, state
+
     if state.step == funnel.CHOOSING_VACANCY:
         listing = ("Вернёмся к выбору вакансии — ответьте номером:\n\n"
                    + render_vacancies(vacancies))
@@ -554,12 +657,14 @@ def build_ui():
     with gr.Blocks(title="Крюинг-агентство «Меридиан»") as demo:
         with gr.Tab("Кандидат"):
             state = gr.State({})
+            chatbot = gr.Chatbot(label="Chatbot")
             gr.ChatInterface(
+                chatbot=chatbot,
                 fn=candidate_chat,
                 additional_inputs=[state],
                 additional_outputs=[state],
                 title="Запись на интервью",
-                description="Выберите вакансию, ответьте на вопросы и заберите время интервью.",
+                description="Подберём вакансию по должности и типу флота и запишем на интервью.",
             )
 
         with gr.Tab("Рекрутер"):
@@ -635,6 +740,13 @@ def build_ui():
                 outputs=[session_password, login_box, workspace,
                          login_message, password],
             )
+
+        def _open_chat():
+            """Приветствие и первый вопрос — сразу при открытии страницы."""
+            text, fresh = opening_message()
+            return [{"role": "assistant", "content": text}], fresh
+
+        demo.load(_open_chat, outputs=[chatbot, state])
 
     return demo
 
