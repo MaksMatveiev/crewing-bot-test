@@ -1,14 +1,7 @@
+import pytest
+
 
 from crewing_bot import brain
-
-
-def test_classify_recognises_counter_question():
-    assert brain.classify("а какая зарплата?", "Гражданство?", ask=lambda p, **k: "вопрос") == "вопрос"
-
-
-def test_classify_falls_back_to_answer_on_garbage():
-    # модель ответила мусором — считаем это ответом по анкете и не ломаем воронку
-    assert brain.classify("Украина", "Гражданство?", ask=lambda p, **k: "!!!") == "ответ"
 
 
 def test_extract_pulls_json_out_of_chatty_reply():
@@ -76,11 +69,6 @@ def _unavailable(prompt, **kwargs):
     return brain.ModelUnavailable("⚠️ Модель не отвечает: timeout")
 
 
-def test_classify_reports_model_failure_instead_of_guessing():
-    result = brain.classify("Украина", "Гражданство?", ask=_unavailable)
-    assert brain.is_unavailable(result) is True
-
-
 def test_extract_reports_model_failure_instead_of_empty_dict():
     result = brain.extract("Украина", ["citizenship"], ask=_unavailable)
     assert brain.is_unavailable(result) is True
@@ -129,3 +117,50 @@ def test_ask_model_handles_none_response(monkeypatch):
     assert result is not None
     assert isinstance(result, str)
     assert result.startswith("⚠️")
+
+
+# --- распознавание встречного вопроса без модели ---
+
+@pytest.mark.parametrize("text", [
+    "а какая зарплата?",
+    "Какая зарплата",
+    "сколько платят",
+    "когда начинается контракт?",
+    "где находится офис",
+    "можно ли взять жену на борт?",
+    "есть ли вакансии на танкера",
+    "почему так долго",
+    "зачем нужен паспорт моряка",
+    "а что по визам?",
+    "нужно ли проходить медкомиссию",
+])
+def test_question_is_recognised(text):
+    assert brain.looks_like_question(text) is True
+
+
+@pytest.mark.parametrize("text", [
+    "Петров Пётр",
+    "petrov@example.com",
+    "Украина",
+    "24",
+    "24 месяца вторым механиком",
+    "балкеры и контейнеровозы",
+    "2026-10-01",
+    "да, есть",
+    "STCW до 2029 года",
+    "1",
+])
+def test_answer_is_not_mistaken_for_question(text):
+    assert brain.looks_like_question(text) is False
+
+
+def test_empty_and_odd_input_is_not_a_question():
+    # Пустое сообщение не должно уводить в ветку ответа на вопрос:
+    # там воронка просто повторит текущий вопрос анкеты.
+    assert brain.looks_like_question("") is False
+    assert brain.looks_like_question("   ") is False
+    assert brain.looks_like_question(None) is False
+
+
+def test_question_mark_inside_text_counts():
+    assert brain.looks_like_question("извините, а сколько это по времени?") is True
