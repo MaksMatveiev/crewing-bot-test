@@ -93,3 +93,29 @@ def test_block_stops_the_funnel():
     state = funnel.block(funnel.State(), "уже записан на 12 марта, 10:00")
     assert state.step == funnel.BLOCKED
     assert "12 марта" in state.blocked_reason
+
+
+def test_list_from_model_becomes_readable_text():
+    # Модель на «танкера» отвечает списком, а колонка в базе текстовая:
+    # без склейки рекрутер видит в заявке {танкера,контейнеровозы}.
+    state = funnel.select_vacancy(funnel.State(), 7, ["STCW?"])
+    state = funnel.record_profile(state, {"vessel_types": ["танкера", "контейнеровозы"]})
+    assert state.profile["vessel_types"] == "танкера, контейнеровозы"
+
+
+def test_single_item_list_loses_brackets_too():
+    state = funnel.select_vacancy(funnel.State(), 7, ["STCW?"])
+    state = funnel.record_profile(state, {"vessel_types": ["танкера"]})
+    assert state.profile["vessel_types"] == "танкера"
+
+
+def test_empty_list_is_ignored_like_empty_value():
+    state = funnel.select_vacancy(funnel.State(), 7, ["STCW?"])
+    state = funnel.record_profile(state, {"vessel_types": []})
+    assert "vessel_types" not in state.profile
+
+
+def test_numbers_from_model_stay_usable():
+    state = funnel.select_vacancy(funnel.State(), 7, ["STCW?"])
+    state = funnel.record_profile(state, {"rank_experience_months": 24})
+    assert state.profile["rank_experience_months"] == 24
