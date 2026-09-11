@@ -140,10 +140,10 @@ class FakeBrain:
         self.fail_verdict = False
         self.verdict_calls = []
 
-    def classify(self, message, question):
-        if self.down:
-            return brain_module.ModelUnavailable("⚠️ модель недоступна")
-        return "ответ"
+    def looks_like_question(self, text):
+        # Эвристика настоящая: она чистая, ходить никуда не надо, и
+        # подменять её значило бы проверять заглушку вместо кода.
+        return brain_module.looks_like_question(text)
 
     def extract(self, message, fields):
         if self.down:
@@ -320,7 +320,6 @@ def test_message_with_digits_is_not_a_slot_number(bot):
 def test_counter_question_at_slot_step_is_answered_and_list_repeated(bot):
     """Роутер работает и на выборе слота (I1)."""
     _, state = _to_slot_list()
-    bot.brain.classify = lambda message, question: "вопрос"
 
     reply, state = app.handle("а можно 2 марта?", state)
 
@@ -333,7 +332,6 @@ def test_counter_question_at_slot_step_is_answered_and_list_repeated(bot):
 
 def test_counter_question_at_vacancy_step_is_answered(bot):
     """Роутер работает и на выборе вакансии (I1)."""
-    bot.brain.classify = lambda message, question: "вопрос"
     _, state = app.handle("привет", {})
 
     reply, state = app.handle("а какая там зарплата?", state)
@@ -399,7 +397,6 @@ def test_model_failure_in_extract_does_not_fill_profile(bot):
     state = _to_profile()
     before = dict(state)
     bot.brain.down = True
-    bot.brain.classify = lambda message, question: "ответ"
 
     reply, state = app.handle("Ivanov Ivan", state)
 

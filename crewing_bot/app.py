@@ -171,19 +171,17 @@ def _handle_with_db(conn, message: str, state):
     vacancy = db.get_vacancy(conn, state.vacancy_id) if state.vacancy_id else None
     question, resume, resumed = _current_question(conn, state, vacancies)
 
-    # Router: встречный вопрос не сбивает воронку — и на шагах выбора
-    # вакансии и слота тоже. Сообщение, которое целиком является номером,
-    # модели не показываем: это заведомо выбор из списка.
-    if question and _parse_number(message) is None:
-        decision = brain.classify(message, question)
-        if brain.is_unavailable(decision):
+    # Router без модели: встречный вопрос виден по знаку вопроса и
+    # вопросительному слову. Раньше это решала модель — отдельный запрос
+    # на каждое сообщение кандидата, то есть половина времени ответа и
+    # половина суточной квоты впустую. Сообщение, целиком являющееся
+    # номером, — заведомо выбор из списка, его не разбираем вовсе.
+    if question and _parse_number(message) is None and brain.looks_like_question(message):
+        reply = brain.answer(message, KNOWLEDGE, _vacancy_text(vacancy))
+        if brain.is_unavailable(reply):
             # Модель молчит — воронку не двигаем, вопрос повторяем.
             return _model_down(resume), vars(resumed)
-        if decision == "вопрос":
-            reply = brain.answer(message, KNOWLEDGE, _vacancy_text(vacancy))
-            if brain.is_unavailable(reply):
-                return _model_down(resume), vars(resumed)
-            return f"{reply}\n\n{resume}", vars(resumed)
+        return f"{reply}\n\n{resume}", vars(resumed)
 
     if state.step == funnel.CHOOSING_VACANCY:
         number = _parse_number(message)
