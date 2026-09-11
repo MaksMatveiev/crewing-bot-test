@@ -442,6 +442,21 @@ def _guard(password: str):
     return None
 
 
+def recruiter_login(entered: str):
+    """Проверить пароль на входе во вкладку рекрутера.
+
+    Возвращает (пароль_для_сессии, открыт_ли_доступ, сообщение_об_ошибке).
+
+    Пароль запоминается в состоянии вкладки и дальше подставляется в
+    каждый вызов: скрытие блоков — только внешний вид, и проверку на
+    сервере обходить нельзя.
+    """
+    error = _guard(entered)
+    if error:
+        return "", False, error
+    return entered, True, ""
+
+
 def recruiter_vacancies(password: str) -> str:
     error = _guard(password)
     if error:
@@ -550,50 +565,79 @@ def build_ui():
             )
 
         with gr.Tab("Рекрутер"):
-            password = gr.Textbox(label="Пароль", type="password")
+            # Пароль живёт в состоянии вкладки и подставляется в каждый вызов.
+            # Скрытие блоков ниже — только внешний вид: обработчики на сервере
+            # проверяют пароль сами, иначе защиту обошли бы запросом мимо
+            # интерфейса.
+            session_password = gr.State("")
 
-            gr.Markdown("### Вакансии")
-            vacancies_out = gr.Textbox(label="Открытые вакансии", lines=6)
-            gr.Button("Показать вакансии").click(
-                recruiter_vacancies, inputs=password, outputs=vacancies_out
+            with gr.Group() as login_box:
+                gr.Markdown("### Вход для рекрутера")
+                password = gr.Textbox(label="Пароль", type="password")
+                login_message = gr.Markdown("")
+                login_button = gr.Button("Войти")
+
+            with gr.Group(visible=False) as workspace:
+                gr.Markdown("### Вакансии")
+                vacancies_out = gr.Textbox(label="Открытые вакансии", lines=6)
+                gr.Button("Показать вакансии").click(
+                    recruiter_vacancies, inputs=session_password, outputs=vacancies_out
+                )
+
+                rank = gr.Textbox(label="Должность", placeholder="2nd Engineer")
+                vessel_type = gr.Textbox(label="Тип судна", placeholder="bulk carrier")
+                contract_months = gr.Number(label="Контракт, мес", value=6)
+                salary_usd = gr.Number(label="Ставка, $", value=6500)
+                requirements = gr.Textbox(label="Требования", lines=3)
+                questions_text = gr.Textbox(
+                    label="Вопросы скрининга — по одному в строке. Пусто = набор по умолчанию",
+                    lines=6,
+                )
+                add_out = gr.Textbox(label="Результат")
+                gr.Button("Добавить вакансию").click(
+                    recruiter_add_vacancy,
+                    inputs=[session_password, rank, vessel_type, contract_months,
+                            salary_usd, requirements, questions_text],
+                    outputs=add_out,
+                )
+
+                gr.Markdown("### Слоты интервью")
+                gr.Markdown("Время слотов задаётся и хранится в **UTC** — "
+                            "кандидат видит его с той же пометкой.")
+                day_text = gr.Textbox(label="Дата (ГГГГ-ММ-ДД, UTC)")
+                start_hhmm = gr.Textbox(label="С (UTC)", value="10:00")
+                end_hhmm = gr.Textbox(label="До (UTC)", value="17:00")
+                step_min = gr.Number(label="Шаг, мин (больше нуля)", value=30)
+                slots_out = gr.Textbox(label="Результат")
+                gr.Button("Открыть слоты").click(
+                    recruiter_open_slots,
+                    inputs=[session_password, day_text, start_hhmm, end_hhmm, step_min],
+                    outputs=slots_out,
+                )
+
+                gr.Markdown("### Заявки")
+                applications_out = gr.Textbox(label="Заявки кандидатов", lines=20)
+                gr.Button("Показать заявки").click(
+                    recruiter_applications, inputs=session_password, outputs=applications_out
+                )
+
+            def _login(entered):
+                stored, unlocked, message = recruiter_login(entered)
+                # Поле пароля очищаем в любом случае: на общем экране
+                # введённому паролю оставаться незачем.
+                return (stored,
+                        gr.update(visible=not unlocked),
+                        gr.update(visible=unlocked),
+                        message,
+                        "")
+
+            login_button.click(
+                _login,
+                inputs=password,
+                outputs=[session_password, login_box, workspace,
+                         login_message, password],
             )
 
-            rank = gr.Textbox(label="Должность", placeholder="2nd Engineer")
-            vessel_type = gr.Textbox(label="Тип судна", placeholder="bulk carrier")
-            contract_months = gr.Number(label="Контракт, мес", value=6)
-            salary_usd = gr.Number(label="Ставка, $", value=6500)
-            requirements = gr.Textbox(label="Требования", lines=3)
-            questions_text = gr.Textbox(
-                label="Вопросы скрининга — по одному в строке. Пусто = набор по умолчанию",
-                lines=6,
-            )
-            add_out = gr.Textbox(label="Результат")
-            gr.Button("Добавить вакансию").click(
-                recruiter_add_vacancy,
-                inputs=[password, rank, vessel_type, contract_months,
-                        salary_usd, requirements, questions_text],
-                outputs=add_out,
-            )
-
-            gr.Markdown("### Слоты интервью")
-            gr.Markdown("Время слотов задаётся и хранится в **UTC** — "
-                        "кандидат видит его с той же пометкой.")
-            day_text = gr.Textbox(label="Дата (ГГГГ-ММ-ДД, UTC)")
-            start_hhmm = gr.Textbox(label="С (UTC)", value="10:00")
-            end_hhmm = gr.Textbox(label="До (UTC)", value="17:00")
-            step_min = gr.Number(label="Шаг, мин (больше нуля)", value=30)
-            slots_out = gr.Textbox(label="Результат")
-            gr.Button("Открыть слоты").click(
-                recruiter_open_slots,
-                inputs=[password, day_text, start_hhmm, end_hhmm, step_min],
-                outputs=slots_out,
-            )
-
-            gr.Markdown("### Заявки")
-            applications_out = gr.Textbox(label="Заявки кандидатов", lines=20)
-            gr.Button("Показать заявки").click(
-                recruiter_applications, inputs=password, outputs=applications_out
-            )
     return demo
 
 

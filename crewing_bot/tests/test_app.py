@@ -599,3 +599,32 @@ def test_lost_bind_race_gets_no_card(monkeypatch):
     update = {"message": {"chat": {"id": 555}, "text": "/start GOODTOKEN"}}
     assert app.handle_telegram_update(update, conn=None) == "foreign"
     assert all("Petrov" not in text for _, text in sent)
+
+
+def test_login_rejects_wrong_password(fresh_attempts):
+    stored, unlocked, message = app.recruiter_login("не тот")
+    assert stored == ""
+    assert unlocked is False
+    assert "парол" in message.lower()
+
+
+def test_login_accepts_right_password(fresh_attempts):
+    stored, unlocked, message = app.recruiter_login("s3cret")
+    assert stored == "s3cret"
+    assert unlocked is True
+    assert message == ""
+
+
+def test_login_without_configured_password_stays_closed(fresh_attempts, monkeypatch):
+    monkeypatch.delenv("RECRUITER_PASSWORD", raising=False)
+    stored, unlocked, message = app.recruiter_login("что угодно")
+    assert stored == ""
+    assert unlocked is False
+    assert message
+
+
+def test_login_counts_attempts_once_per_try(fresh_attempts):
+    # Каждая попытка должна увеличивать счётчик ровно на единицу:
+    # иначе пауза наступит вдвое раньше, чем обещано человеку.
+    app.recruiter_login("не тот")
+    assert app._password_attempts["failures"] == 1
