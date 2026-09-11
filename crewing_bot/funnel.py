@@ -49,11 +49,25 @@ def select_vacancy(state: State, vacancy_id: int, screening_questions: list) -> 
     )
 
 
+def _readable(value):
+    """Привести значение от модели к виду, пригодному для показа человеку.
+
+    Модель на «танкера» отвечает списком, а колонки в базе текстовые.
+    Без склейки рекрутер увидел бы в заявке {танкера,контейнеровозы} —
+    Postgres так записывает список в текстовое поле. Числа не трогаем:
+    они уходят в числовые колонки.
+    """
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(item).strip() for item in value if str(item).strip())
+    return value
+
+
 def record_profile(state: State, parsed: dict) -> State:
     """Записать распознанные поля анкеты. Пустые значения игнорируются."""
     known = {name for name, _ in PROFILE_FIELDS}
     filled = dict(state.profile)
     for name, value in parsed.items():
+        value = _readable(value)
         if name in known and value not in (None, "", []):
             filled[name] = value
     return replace(state, profile=filled)
