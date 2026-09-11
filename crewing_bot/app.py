@@ -653,11 +653,29 @@ def recruiter_applications(password: str) -> str:
     )
 
 
+def _startup_greeting():
+    """Приветствие для первой отрисовки страницы.
+
+    Собирается один раз при старте приложения. База может быть
+    недоступна — тогда показываем текст без списка должностей, а список
+    добавит событие загрузки.
+    """
+    try:
+        text, _ = opening_message()
+    except Exception:
+        logger.exception("Не удалось собрать приветствие при старте")
+        text = GREETING_TEXT
+    return [{"role": "assistant", "content": text}]
+
+
 def build_ui():
     with gr.Blocks(title="Крюинг-агентство «Меридиан»") as demo:
         with gr.Tab("Кандидат"):
             state = gr.State({})
-            chatbot = gr.Chatbot(label="Chatbot")
+            # Приветствие попадает в разметку сразу, при сборке страницы:
+            # событие загрузки отрабатывает уже после первой отрисовки, и на
+            # спящем сервисе человек успевал увидеть пустой чат.
+            chatbot = gr.Chatbot(label="Chatbot", value=_startup_greeting())
             gr.ChatInterface(
                 chatbot=chatbot,
                 fn=candidate_chat,
