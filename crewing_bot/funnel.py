@@ -7,6 +7,8 @@
 from dataclasses import dataclass, field, replace
 
 GREETING = "greeting"
+CHOOSING_RANK = "choosing_rank"
+CHOOSING_VESSEL_TYPE = "choosing_vessel_type"
 CHOOSING_VACANCY = "choosing_vacancy"
 COLLECTING_PROFILE = "collecting_profile"
 SCREENING = "screening"
@@ -29,6 +31,10 @@ PROFILE_FIELDS = [
 @dataclass(frozen=True)
 class State:
     step: str = GREETING
+    rank_options: list = field(default_factory=list)
+    vessel_options: list = field(default_factory=list)
+    wanted_rank: str = ""
+    wanted_vessel_type: str = ""
     vacancy_id: int | None = None
     profile: dict = field(default_factory=dict)
     screening_questions: list = field(default_factory=list)
@@ -38,6 +44,56 @@ class State:
     blocked_reason: str = ""
     # сырые ответы, которые модель не смогла разобрать — уйдут рекрутеру
     notes: str = ""
+
+
+def match_option(message, options) -> int | None:
+    """Номер выбранного варианта, или None если понять нельзя.
+
+    Принимаем и номер, и текст: моряк пишет то «2», то «2nd eng».
+    Совпадение по части слова без учёта регистра — должности и типы
+    судов в базе на английском, и кандидат называет их так же.
+
+    Два совпадения — это None: выбирать за человека нельзя, лучше
+    переспросить.
+    """
+    if not isinstance(message, str) or not options:
+        return None
+    cleaned = message.strip()
+    if not cleaned:
+        return None
+
+    if cleaned.isdigit():
+        number = int(cleaned)
+        return number - 1 if 1 <= number <= len(options) else None
+
+    needle = cleaned.casefold()
+    hits = [i for i, option in enumerate(options)
+            if needle in str(option).casefold() or str(option).casefold() in needle]
+    return hits[0] if len(hits) == 1 else None
+
+
+def offer_ranks(state: State, ranks: list) -> State:
+    """Показать должности, которые есть в открытых вакансиях."""
+    return replace(state, step=CHOOSING_RANK, rank_options=list(ranks))
+
+
+def select_rank(state: State, index: int) -> State:
+    if not 0 <= index < len(state.rank_options):
+        raise ValueError(f"нет должности с номером {index + 1}")
+    return replace(state, wanted_rank=state.rank_options[index],
+                   step=CHOOSING_VESSEL_TYPE)
+
+
+def offer_vessel_types(state: State, types: list) -> State:
+    """Показать типы судов — только те, что есть у выбранной должности."""
+    return replace(state, step=CHOOSING_VESSEL_TYPE, vessel_options=list(types))
+
+
+def select_vessel_type(state: State, index: int) -> State:
+    if not 0 <= index < len(state.vessel_options):
+        raise ValueError(f"нет типа судна с номером {index + 1}")
+    return replace(state, wanted_vessel_type=state.vessel_options[index],
+                   step=CHOOSING_VACANCY)
 
 
 def select_vacancy(state: State, vacancy_id: int, screening_questions: list) -> State:

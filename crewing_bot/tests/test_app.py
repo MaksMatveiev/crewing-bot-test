@@ -76,8 +76,19 @@ class FakeDB:
     def init_schema(self, conn):
         pass
 
-    def list_active_vacancies(self, conn):
-        return list(self.vacancies)
+    def list_active_vacancies(self, conn, rank=None, vessel_type=None):
+        found = list(self.vacancies)
+        if rank:
+            found = [v for v in found if v["rank"] == rank]
+        if vessel_type:
+            found = [v for v in found if v["vessel_type"] == vessel_type]
+        return found
+
+    def list_open_ranks(self, conn):
+        return sorted({v["rank"] for v in self.vacancies})
+
+    def list_open_vessel_types(self, conn, rank):
+        return sorted({v["vessel_type"] for v in self.vacancies if v["rank"] == rank})
 
     def get_vacancy(self, conn, vacancy_id):
         for vacancy in self.vacancies:
@@ -173,9 +184,11 @@ def bot(monkeypatch):
 
 
 def _to_profile():
-    """Дойти до первого вопроса анкеты."""
-    _, state = app.handle("привет", {})
-    _, state = app.handle("1", state)
+    """Дойти до первого вопроса анкеты: должность, флот, вакансия."""
+    _, state = app.handle("привет", {})       # приветствие и список должностей
+    _, state = app.handle("AB", state)        # должность
+    _, state = app.handle("container", state)  # тип флота
+    _, state = app.handle("1", state)         # вакансия из подобранных
     return state
 
 
@@ -333,6 +346,8 @@ def test_counter_question_at_slot_step_is_answered_and_list_repeated(bot):
 def test_counter_question_at_vacancy_step_is_answered(bot):
     """Роутер работает и на выборе вакансии (I1)."""
     _, state = app.handle("привет", {})
+    _, state = app.handle("AB", state)
+    _, state = app.handle("container", state)
 
     reply, state = app.handle("а какая там зарплата?", state)
 
@@ -341,11 +356,36 @@ def test_counter_question_at_vacancy_step_is_answered(bot):
     assert state["vacancy_id"] is None
 
 
+def test_counter_question_at_rank_step_is_answered(bot):
+    """Роутер работает и на самом первом шаге — выборе должности."""
+    _, state = app.handle("привет", {})
+
+    reply, state = app.handle("а какая зарплата вообще?", state)
+
+    assert "Ответ по фактам." in reply
+    assert state["step"] == funnel.CHOOSING_RANK
+    assert state["wanted_rank"] == ""
+
+
+def test_counter_question_at_vessel_step_is_answered(bot):
+    """И на выборе типа флота тоже."""
+    _, state = app.handle("привет", {})
+    _, state = app.handle("AB", state)
+
+    reply, state = app.handle("а что за суда?", state)
+
+    assert "Ответ по фактам." in reply
+    assert state["step"] == funnel.CHOOSING_VESSEL_TYPE
+    assert state["wanted_vessel_type"] == ""
+
+
 def test_message_with_digits_is_not_a_vacancy_number(bot):
     """Номер 2 в списке существует — значит проверяется именно роутер."""
     assert len(bot.db.list_active_vacancies(None)) >= 2
 
     _, state = app.handle("привет", {})
+    _, state = app.handle("AB", state)
+    _, state = app.handle("container", state)
 
     reply, state = app.handle("а можно 2 контракта подряд?", state)
 
@@ -625,3 +665,49 @@ def test_login_counts_attempts_once_per_try(fresh_attempts):
     # иначе пауза наступит вдвое раньше, чем обещано человеку.
     app.recruiter_login("не тот")
     assert app._password_attempts["failures"] == 1
+
+
+# --- приветствие при открытии страницы ---
+
+def test_opening_message_greets_and_asks_for_rank(bot):
+    text, state = app.opening_message()
+
+    assert "Здравствуйте" in text
+    assert "должность" in text.lower()
+    assert "2nd Engineer" in text and "AB" in text
+    assert state["step"] == funnel.CHOOSING_RANK
+
+
+def test_opening_message_without_vacancies_stays_at_greeting(bot):
+    bot.db.vacancies = []
+    text, state = app.opening_message()
+
+    assert "ваканс" in text.lower()
+    assert state["step"] == funnel.GREETING
+
+
+def test_opening_message_survives_broken_database(bot):
+    # База недоступна при открытии страницы — человек должен увидеть
+    # внятный текст, а не пустой экран или ошибку интерфейса.
+    def boom():
+        raise RuntimeError("Нет DATABASE_URL")
+    bot.db.connect = boom
+
+    text, state = app.opening_message()
+
+    assert text
+    assert state["step"] == funnel.GREETING
+
+
+def test_first_real_message_is_not_wasted_after_opening(bot):
+    # Раньше первое сообщение уходило впустую: кандидат писал «привет»,
+    # а в ответ получал список вакансий. Теперь список уже показан, и
+    # первое сообщение — это выбор номера.
+    _, state = app.opening_message()
+
+    reply, state = app.handle("1", state)
+
+    # Первое сообщение — уже выбор должности, а не потраченное впустую «привет».
+    assert "Отлично" in reply
+    assert state["wanted_rank"] == "2nd Engineer"
+    assert state["step"] == funnel.CHOOSING_VESSEL_TYPE

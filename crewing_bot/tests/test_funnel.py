@@ -119,3 +119,59 @@ def test_numbers_from_model_stay_usable():
     state = funnel.select_vacancy(funnel.State(), 7, ["STCW?"])
     state = funnel.record_profile(state, {"rank_experience_months": 24})
     assert state.profile["rank_experience_months"] == 24
+
+
+# --- выбор должности и типа флота ---
+
+RANKS = ["2nd Engineer", "AB", "Master"]
+
+
+def test_bare_number_picks_option():
+    assert funnel.match_option("2", RANKS) == 1
+    assert funnel.match_option(" 3 ", RANKS) == 2
+
+
+def test_number_out_of_range_is_no_match():
+    assert funnel.match_option("9", RANKS) is None
+    assert funnel.match_option("0", RANKS) is None
+
+
+def test_text_matches_option_ignoring_case():
+    assert funnel.match_option("ab", RANKS) == 1
+    assert funnel.match_option("MASTER", RANKS) == 2
+
+
+def test_partial_text_matches():
+    # Моряк пишет сокращённо — «2nd eng» вместо «2nd Engineer».
+    assert funnel.match_option("2nd eng", RANKS) == 0
+
+
+def test_ambiguous_text_is_no_match():
+    # Два совпадения — выбирать за кандидата нельзя, переспросим.
+    assert funnel.match_option("e", ["2nd Engineer", "Chief Engineer"]) is None
+
+
+def test_unknown_text_is_no_match():
+    assert funnel.match_option("повар", RANKS) is None
+    assert funnel.match_option("", RANKS) is None
+
+
+def test_rank_then_vessel_then_vacancy():
+    state = funnel.offer_ranks(funnel.State(), RANKS)
+    assert state.step == funnel.CHOOSING_RANK
+
+    state = funnel.select_rank(state, 0)
+    assert state.wanted_rank == "2nd Engineer"
+    assert state.step == funnel.CHOOSING_VESSEL_TYPE
+
+    state = funnel.offer_vessel_types(state, ["bulk carrier", "tanker"])
+    state = funnel.select_vessel_type(state, 1)
+    assert state.wanted_vessel_type == "tanker"
+    assert state.step == funnel.CHOOSING_VACANCY
+
+
+def test_selecting_out_of_range_rank_is_rejected():
+    state = funnel.offer_ranks(funnel.State(), RANKS)
+    with pytest.raises(ValueError):
+        funnel.select_rank(state, 5)
+    assert state.wanted_rank == ""

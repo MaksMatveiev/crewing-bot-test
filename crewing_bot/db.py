@@ -200,15 +200,48 @@ def create_vacancy(conn, rank, vessel_type, contract_months, salary_usd,
         return cur.fetchone()[0]
 
 
-def list_active_vacancies(conn) -> list:
+def list_active_vacancies(conn, rank: str = None, vessel_type: str = None) -> list:
+    """Открытые вакансии, при желании суженные должностью и типом судна.
+
+    Фильтры необязательные: без них отдаём всё, как и раньше.
+    """
+    where = ["is_active"]
+    params = []
+    if rank:
+        where.append("rank = %s")
+        params.append(rank)
+    if vessel_type:
+        where.append("vessel_type = %s")
+        params.append(vessel_type)
+
     with conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(
             "SELECT id, rank, vessel_type, contract_months, salary_usd,"
             " requirements, screening_questions FROM vacancies"
-            " WHERE is_active ORDER BY id"
+            " WHERE " + " AND ".join(where) + " ORDER BY id",
+            tuple(params),
         )
         return [dict(row) for row in cur.fetchall()]
 
+
+def list_open_ranks(conn) -> list:
+    """Должности, которые встречаются в открытых вакансиях."""
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT rank FROM vacancies WHERE is_active ORDER BY rank"
+        )
+        return [row[0] for row in cur.fetchall()]
+
+
+def list_open_vessel_types(conn, rank: str) -> list:
+    """Типы судов открытых вакансий — только для выбранной должности."""
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT vessel_type FROM vacancies"
+            " WHERE is_active AND rank = %s ORDER BY vessel_type",
+            (rank,),
+        )
+        return [row[0] for row in cur.fetchall()]
 
 def get_vacancy(conn, vacancy_id: int):
     with conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
