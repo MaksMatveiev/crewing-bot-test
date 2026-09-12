@@ -1562,3 +1562,35 @@ gradio-app,
         justify-content: center;
     }
 }
+
+/* --- Реплика переносится вниз, а не тянется вбок --------------------------
+
+   Ширина в сто процентов плюс поля давали блок шире родителя: появлялась
+   горизонтальная прокрутка, и реплики уезжали за край. Поля теперь
+   считаются внутри ширины, а длинные слова переносятся. */
+
+#assistant-chat,
+#assistant-chat * {
+    box-sizing: border-box !important;
+    max-width: 100% !important;
+}
+
+#assistant-chat {
+    overflow-x: hidden !important;
+}
+
+#assistant-chat .message,
+#assistant-chat [data-testid="bot"],
+#assistant-chat [data-testid="user"] {
+    width: auto !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: normal !important;
+}
+
+#assistant-chat .message-wrap,
+#assistant-chat .message-row,
+#assistant-chat .bubble-wrap {
+    width: 100% !important;
+    overflow-x: hidden !important;
+}
