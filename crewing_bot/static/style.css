@@ -328,26 +328,25 @@ gradio-app,
 }
 
 /* Карточек в ряду должно быть три: 320 px на каждую — это две. */
+/* Карточки раскладывает сетка, а не строки: колонок столько, сколько
+   помещается, и последняя карточка не растягивается на всю ширину. */
+.cards-grid {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 14px !important;
+    padding: 0 !important;
+}
+
+/* Строки Gradio исчезают как коробки — карточки становятся детьми
+   сетки и выстраиваются ровно. */
+.cards-grid > .row,
+.cards-grid > div:not(.vac-card) {
+    display: contents !important;
+}
+
 .vac-card {
-    min-width: 220px !important;
-    /* Ряд из одной карточки не должен растягивать её во всю ширину:
-       третья часть ряда минус промежутки — и она встаёт как в полном. */
-    flex: 0 1 calc(33.333% - 12px) !important;
-    max-width: calc(33.333% - 12px) !important;
-}
-
-@media (max-width: 900px) {
-    .vac-card {
-        flex: 0 1 calc(50% - 10px) !important;
-        max-width: calc(50% - 10px) !important;
-    }
-}
-
-@media (max-width: 620px) {
-    .vac-card {
-        flex: 1 1 100% !important;
-        max-width: 100% !important;
-    }
+    min-width: 0 !important;
+    max-width: none !important;
 }
 
 /* --- Кнопки с движением --------------------------------------------------
@@ -1091,4 +1090,160 @@ gradio-app,
 .gradio-container [role="tablist"] button[role="tab"]::after,
 .gradio-container [role="tablist"] button[role="tab"]::before {
     display: none !important;
+}
+
+/* --- Телефон -------------------------------------------------------------
+
+   Белое поле занимало 96vw плюс собственные поля — вместе это шире
+   экрана, и «Рекрутер» уезжал за правый край. На телефоне поле во всю
+   ширину, без скруглений и лишних отступов. */
+
+@media (max-width: 620px) {
+    html {
+        font-size: 20px;
+    }
+
+    .gradio-container {
+        width: 100vw !important;
+        max-width: 100vw !important;
+        margin: 0 !important;
+        padding: 10px 10px 20px !important;
+        border-radius: 0;
+        min-height: 100vh;
+    }
+
+    /* Шапка в два яруса: название сверху, вкладки под ним двумя равными
+       колонками. В одну строку «Рекрутер» не помещался и уезжал за край. */
+    .gradio-container [role="tablist"] {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr;
+        min-height: 0;
+        padding: 10px 12px !important;
+        gap: 8px;
+        border-radius: 18px;
+    }
+
+    .gradio-container [role="tablist"] button[role="tab"] {
+        padding: 10px 8px !important;
+        font-size: 18px !important;
+        width: 100%;
+    }
+
+    .gradio-container [role="tablist"]::before {
+        grid-column: 1 / -1;
+        justify-self: center;
+        margin-right: 0;
+        font-size: 21px !important;
+        padding-left: 38px;
+        line-height: 32px;
+        background-size: 32px 32px;
+    }
+
+    /* На телефоне колонок столько, сколько влезает без потери читаемости:
+       две на узком экране, три примерно с пятисот пикселей. Втискивать
+       три в триста семьдесят — карточка в сто десять пикселей, где не
+       помещается ни должность, ни кнопка. */
+    .cards-grid {
+        grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+        gap: 10px !important;
+    }
+
+    /* Внутренние поля колонки съедали почти сто пикселей — на телефоне
+       из-за них вторая карточка не помещалась в ряд. */
+    #vacancy-side,
+    #vacancy-side > div {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+
+    .vac-card {
+        padding: 8px !important;
+    }
+
+    .vac-card .vac-text {
+        padding: 10px 2px 2px;
+    }
+
+    .vac-card h4 {
+        font-size: 17px !important;
+    }
+
+    .vac-card .vac-vessel,
+    .vac-card .vac-meta {
+        font-size: 13px !important;
+    }
+
+    .vac-card .vac-salary {
+        font-size: 16px !important;
+    }
+
+    .gradio-container .vac-card button,
+    .gradio-container .vac-card button.primary,
+    .gradio-container .vac-card button.secondary {
+        font-size: 14px !important;
+        padding: 8px 6px !important;
+        min-height: 44px !important;
+        margin-top: 8px !important;
+    }
+
+    #rank-picker,
+    #vacancy-side .form:has(#rank-picker) {
+        max-width: 100% !important;
+    }
+
+    #calendar-side {
+        min-width: 0;
+    }
+}
+
+/* --- Телефон: размеры внутри карточки -----------------------------------
+
+   Общие правила для подписей (span, p) специфичнее коротких селекторов
+   карточки и перебивали их — здесь селекторы длиннее нарочно. */
+
+@media (max-width: 620px) {
+    #vacancy-side .vac-card .vac-vessel,
+    #vacancy-side .vac-card .vac-meta,
+    .cards-grid .vac-card .vac-vessel,
+    .cards-grid .vac-card .vac-meta {
+        font-size: 13px !important;
+        margin-bottom: 4px !important;
+        line-height: 1.3 !important;
+    }
+
+    #vacancy-side .vac-card h4,
+    .cards-grid .vac-card h4 {
+        font-size: 16px !important;
+        line-height: 1.25 !important;
+    }
+
+    #vacancy-side .vac-card .vac-salary,
+    .cards-grid .vac-card .vac-salary {
+        font-size: 15px !important;
+        white-space: nowrap;
+    }
+
+    /* Карточки в ряду одной высоты: кнопка прижата к низу. */
+    .cards-grid .vac-card {
+        display: flex !important;
+        flex-direction: column;
+    }
+
+    .cards-grid .vac-card button {
+        margin-top: auto !important;
+    }
+
+    /* Название в шапке обрезалось сверху — даём строке свою высоту. */
+    .gradio-container [role="tablist"]::before {
+        line-height: 1.2 !important;
+        padding: 4px 0 4px 38px;
+        background-position: left center;
+    }
+}
+
+/* Gradio держит строку вкладок одной высоты и обрезает всё лишнее —
+   из-за этого на телефоне второй ярус шапки уходил под обрез. */
+.gradio-container [role="tablist"] {
+    height: auto !important;
+    overflow: visible !important;
 }

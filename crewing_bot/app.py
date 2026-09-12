@@ -1331,13 +1331,17 @@ def _card_pool(button_label: str, variant: str = "primary"):
     один раз при запуске. Поэтому их ровно MAX_CARDS, а лишние скрыты.
     """
     cards = []
-    for start in range(0, MAX_CARDS, CARDS_PER_ROW):
-        with gr.Row():
-            for _ in range(CARDS_PER_ROW):
-                with gr.Column(visible=False, elem_classes="vac-card") as box:
-                    body = gr.HTML("")
-                    button = gr.Button(button_label, variant=variant)
-                cards.append((box, body, button))
+    # Строки нужны только Gradio: раскладку задаёт сетка в стилях. Иначе
+    # на узком экране строка из трёх ломалась как две и одна, и карточки
+    # шли неровно.
+    with gr.Column(elem_classes="cards-grid"):
+        for start in range(0, MAX_CARDS, CARDS_PER_ROW):
+            with gr.Row():
+                for _ in range(CARDS_PER_ROW):
+                    with gr.Column(visible=False, elem_classes="vac-card") as box:
+                        body = gr.HTML("")
+                        button = gr.Button(button_label, variant=variant)
+                    cards.append((box, body, button))
     return cards
 
 
