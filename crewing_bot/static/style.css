@@ -606,3 +606,101 @@ gradio-app,
     flex-wrap: nowrap !important;
     gap: 6px !important;
 }
+
+/* --- Шапка страницы ------------------------------------------------------
+
+   Белая панель со скруглением поверх фона: слева значок и название,
+   посередине разделы, справа кнопка. */
+
+.site-head {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 10px 18px;
+    margin: 0 0 18px;
+    background: #ffffff;
+    border: 1px solid #e6e9e4;
+    border-radius: 999px;
+    box-shadow: 0 6px 20px rgba(16, 24, 40, 0.08);
+}
+
+.site-head .head-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 24px !important;
+    color: #101828 !important;
+    text-decoration: none;
+}
+
+.site-head .head-brand img {
+    border-radius: 10px;
+    display: block;
+}
+
+.site-head .head-nav {
+    display: flex;
+    gap: 22px;
+    margin-left: auto;
+}
+
+.site-head .head-link {
+    font-size: 20px !important;
+    color: #6b7a6e !important;
+    padding-bottom: 2px;
+}
+
+.site-head .head-link.is-current {
+    color: #101828 !important;
+    border-bottom: 2px solid #101828;
+}
+
+.site-head .head-action {
+    margin-left: auto;
+    background: #101828;
+    color: #ffffff !important;
+    font-size: 20px !important;
+    font-weight: 600;
+    padding: 10px 20px;
+    border-radius: 999px;
+    text-decoration: none;
+    transition: background .25s ease, transform .12s ease;
+}
+
+.site-head .head-action:hover {
+    background: #0e7490;
+}
+
+.site-head .head-action:active {
+    transform: scale(.97);
+}
+
+/* На узком экране разделы прячем: на телефоне важны название и кнопка. */
+@media (max-width: 820px) {
+    .site-head {
+        border-radius: 20px;
+        gap: 12px;
+    }
+
+    .site-head .head-nav {
+        display: none;
+    }
+}
+
+/* Gradio подчёркивает все ссылки — в шапке это лишнее. */
+.site-head a,
+.site-head a:hover,
+.site-head .head-action,
+.site-head .head-action:hover {
+    text-decoration: none !important;
+}
+
+/* Подчёркивание выбранной вкладки шло вплотную к буквам — отодвигаем. */
+.gradio-container button[role="tab"] {
+    padding: 10px 16px 14px !important;
+}
+
+.gradio-container button[role="tab"][aria-selected="true"] {
+    border-bottom-width: 3px !important;
+}

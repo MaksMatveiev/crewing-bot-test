@@ -1299,6 +1299,34 @@ def style_version() -> str:
     return format(stamp & 0xFFFFFFFF, "x")
 
 
+AGENCY_NAME = "Меридиан"
+
+HEADER_HTML = """
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={version}">
+<header class="site-head">
+  <a class="head-brand" href="#">
+    <img src="/static/favicon.svg?v={version}" alt="" width="34" height="34">
+    <span>{name}</span>
+  </a>
+  <nav class="head-nav">
+    <span class="head-link is-current">Вакансии</span>
+    <span class="head-link">Интервью</span>
+    <span class="head-link">Экипаж</span>
+  </nav>
+  <a class="head-action" href="#vacancy-side">Подобрать вакансию</a>
+</header>
+"""
+
+
+def header_html() -> str:
+    """Шапка страницы и значок вкладки.
+
+    Значок и шапка берут один и тот же файл: отпечаток стилей в адресе
+    заставляет браузер перечитать его после выкладки.
+    """
+    return HEADER_HTML.format(name=AGENCY_NAME, version=style_version())
+
+
 CARDS_PER_ROW = 3
 
 
@@ -1331,7 +1359,8 @@ def build_ui():
     with gr.Blocks(title="Крюинг-агентство «Меридиан»") as demo:
         # В Gradio 6 у Blocks нет параметра css, поэтому подключаем стили
         # ссылкой на файл, который отдаёт само приложение.
-        gr.HTML(f'<link rel="stylesheet" href="/static/style.css?v={style_version()}">')
+        gr.HTML(f'<link rel="stylesheet" href="/static/style.css?v={style_version()}">'
+                + header_html())
 
         with gr.Tab("Кандидат"):
             state = gr.State({})
