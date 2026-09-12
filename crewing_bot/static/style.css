@@ -1535,3 +1535,18 @@ gradio-app,
 #assistant-chat .message-content {
     border: none !important;
 }
+
+/* Вкладки «Кандидат» и «Рекрутер» одной ширины — долей от шапки, а не по
+   длине слова: рядом они смотрелись разновеликими. */
+.gradio-container [role="tablist"] button[role="tab"] {
+    flex: 0 0 18% !important;
+    min-width: 150px !important;
+    text-align: center;
+}
+
+@media (max-width: 620px) {
+    .gradio-container [role="tablist"] button[role="tab"] {
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+    }
+}
