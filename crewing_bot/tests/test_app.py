@@ -1126,6 +1126,8 @@ def test_new_vacancy_without_questions_gets_default_set(monkeypatch):
 
     monkeypatch.setattr(app, "_open_conn", lambda: (FakeConn(), None))
     monkeypatch.setattr(app.db, "create_vacancy", create_vacancy)
+    monkeypatch.setattr(app.db, "update_vessel_details",
+                        lambda *args, **kwargs: None)
 
     answer = app.recruiter_save_vacancy(
         password, 0, "AB", "tanker", 6, 1800, "опыт", "   ")
@@ -1141,6 +1143,8 @@ def test_chosen_vacancy_is_updated_not_duplicated(monkeypatch):
     monkeypatch.setattr(app.db, "create_vacancy",
                         lambda *args: (_ for _ in ()).throw(AssertionError))
     monkeypatch.setattr(app.db, "update_vacancy", lambda *args: True)
+    monkeypatch.setattr(app.db, "update_vessel_details",
+                        lambda *args, **kwargs: None)
 
     assert "#5 обновлена" in app.recruiter_save_vacancy(
         password, 5, "AB", "tanker", 6, 1800, "опыт", "Вопрос?")
@@ -1187,25 +1191,47 @@ def test_form_is_cleared_for_a_new_vacancy(monkeypatch):
     password = _unlocked(monkeypatch)
     monkeypatch.setattr(app, "_open_conn", lambda: (_ for _ in ()).throw(AssertionError))
 
-    rank, vessel, months, salary, requirements, questions = \
-        app.recruiter_load_vacancy(password, 0)
-
-    assert (rank, vessel, requirements, questions) == ("", "", "", "")
-    assert months and salary
+    assert app.recruiter_load_vacancy(password, 0) == app.BLANK_FORM
 
 
 def test_chosen_vacancy_fills_the_form(monkeypatch):
     password = _unlocked(monkeypatch)
     monkeypatch.setattr(app, "_open_conn", lambda: (FakeConn(), None))
-    monkeypatch.setattr(app.db, "get_vacancy", lambda conn, vacancy_id: _row(vacancy_id))
+    monkeypatch.setattr(
+        app.db, "get_vacancy",
+        lambda conn, vacancy_id: dict(_row(vacancy_id), built_year="1996",
+                                      dwt="3274", engine="Wartsila 8R32E",
+                                      embarkation="ASAP"))
 
-    rank, vessel, months, salary, requirements, questions = \
-        app.recruiter_load_vacancy(password, 3)
+    (rank, vessel, months, salary, requirements, questions,
+     built_year, dwt, engine, embarkation) = app.recruiter_load_vacancy(
+        password, 3)
 
     assert rank == "2nd Engineer"
     assert vessel == "bulk carrier"
     assert (months, salary) == (6, 6500)
     assert questions == "STCW?\nВиза?"
+    assert (built_year, dwt, engine, embarkation) == (
+        "1996", "3274", "Wartsila 8R32E", "ASAP")
+
+
+def test_saving_writes_vessel_details(monkeypatch):
+    """Данные судна нужны объявлению в канале — они должны сохраняться."""
+    password = _unlocked(monkeypatch)
+    saved = {}
+    monkeypatch.setattr(app, "_open_conn", lambda: (FakeConn(), None))
+    monkeypatch.setattr(app.db, "update_vacancy", lambda *args: True)
+    monkeypatch.setattr(
+        app.db, "update_vessel_details",
+        lambda conn, vacancy_id, built_year, dwt, engine, embarkation:
+        saved.update(id=vacancy_id, built_year=built_year, dwt=dwt,
+                     engine=engine, embarkation=embarkation))
+
+    app.recruiter_save_vacancy(password, 5, "AB", "tanker", 6, 1800, "опыт",
+                               "Вопрос?", "1996", "3274", "Wartsila", "ASAP")
+
+    assert saved == {"id": 5, "built_year": "1996", "dwt": "3274",
+                     "engine": "Wartsila", "embarkation": "ASAP"}
 
 
 # --- Календарь интервью -----------------------------------------------------
@@ -1250,3 +1276,112 @@ def test_sign_up_asks_the_first_profile_question(monkeypatch):
 
     assert funnel.PROFILE_FIELDS[0][1] in history[0]["content"]
 
+
+# --- Ежедневная выкладка вакансий в канал -----------------------------------
+
+
+def _digest_db(monkeypatch, mark=None, vacancies=None, posted=None,
+               edited=None, saved=None):
+    """База и Telegram для ежедневной выкладки."""
+    vacancies = [] if vacancies is None else vacancies
+    posted = [] if posted is None else posted
+    edited = [] if edited is None else edited
+    saved = {} if saved is None else saved
+    marks = {"value": mark}
+
+    monkeypatch.setattr(app, "_open_conn", lambda: (FakeConn(), None))
+    monkeypatch.setattr(app.db, "connect", lambda: FakeConn())
+    monkeypatch.setattr(app.db, "init_schema", lambda conn, force=False: None)
+    monkeypatch.setattr(app.db, "list_all_vacancies",
+                        lambda conn, search=None, only=None: list(vacancies))
+    monkeypatch.setattr(app.db, "get_setting",
+                        lambda conn, key: marks["value"])
+    monkeypatch.setattr(app.db, "set_setting",
+                        lambda conn, key, value: marks.update(value=value))
+    monkeypatch.setattr(app.db, "set_channel_message",
+                        lambda conn, vacancy_id, message_id:
+                        saved.update({vacancy_id: message_id}))
+    monkeypatch.setattr(app.telegram, "channel_configured", lambda: True)
+    monkeypatch.setattr(app.telegram, "publish_vacancy",
+                        lambda vacancy, photo="", site="":
+                        posted.append(vacancy["id"]) or 100 + vacancy["id"])
+    monkeypatch.setattr(app.telegram, "update_vacancy_post",
+                        lambda message_id, vacancy, site="":
+                        edited.append(message_id) or True)
+    return marks
+
+
+def test_digest_waits_for_the_appointed_hour(monkeypatch):
+    """До назначенного часа канал не трогаем."""
+    _digest_db(monkeypatch)
+
+    early = datetime(2026, 9, 13, app.PUBLISH_HOUR - 1, 30)
+
+    assert app.daily_publication_due(FakeConn(), early) is False
+
+
+def test_digest_runs_after_the_appointed_hour(monkeypatch):
+    _digest_db(monkeypatch)
+
+    late = datetime(2026, 9, 13, app.PUBLISH_HOUR, 5)
+
+    assert app.daily_publication_due(FakeConn(), late) is True
+
+
+def test_digest_runs_once_a_day(monkeypatch):
+    """Отметка в базе: сервис засыпает и просыпается, повтор не нужен."""
+    _digest_db(monkeypatch, mark="2026-09-13")
+
+    same_day = datetime(2026, 9, 13, app.PUBLISH_HOUR + 3, 0)
+
+    assert app.daily_publication_due(FakeConn(), same_day) is False
+
+
+def test_digest_runs_again_next_day(monkeypatch):
+    _digest_db(monkeypatch, mark="2026-09-12")
+
+    next_day = datetime(2026, 9, 13, app.PUBLISH_HOUR, 1)
+
+    assert app.daily_publication_due(FakeConn(), next_day) is True
+
+
+def test_digest_publishes_every_open_vacancy(monkeypatch):
+    posted, saved = [], {}
+    _digest_db(monkeypatch, vacancies=[_row(1), _row(2)], posted=posted,
+               saved=saved)
+
+    count = app.publish_open_vacancies(FakeConn(), datetime(2026, 9, 13, 8, 0))
+
+    assert count == 2
+    assert posted == [1, 2]
+    assert saved == {1: 101, 2: 102}
+
+
+def test_digest_edits_already_published(monkeypatch):
+    """Вчерашнее объявление правится, а не публикуется заново."""
+    posted, edited = [], []
+    _digest_db(monkeypatch,
+               vacancies=[dict(_row(1), channel_message_id=55)],
+               posted=posted, edited=edited)
+
+    count = app.publish_open_vacancies(FakeConn(), datetime(2026, 9, 13, 8, 0))
+
+    assert count == 1
+    assert edited == [55]
+    assert posted == []
+
+
+def test_digest_marks_the_day_as_done(monkeypatch):
+    marks = _digest_db(monkeypatch, vacancies=[_row(1)])
+
+    app.publish_open_vacancies(FakeConn(), datetime(2026, 9, 13, 8, 0))
+
+    assert marks["value"] == "2026-09-13"
+
+
+def test_digest_stays_quiet_without_a_channel(monkeypatch):
+    monkeypatch.setattr(app.telegram, "channel_configured", lambda: False)
+    monkeypatch.setattr(app.db, "connect",
+                        lambda: (_ for _ in ()).throw(AssertionError))
+
+    assert app.run_daily_publication() == 0

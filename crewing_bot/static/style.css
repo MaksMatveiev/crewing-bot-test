@@ -1741,3 +1741,121 @@ gradio-app,
 
 /* Цвет по смыслу сообщения CSS выбрать не может — на отказ и удачу
    указывают знаки ⚠️ и ✅ в самом тексте. */
+
+/* --- Ровная верхняя строка панели рекрутера ------------------------------
+
+   «+ Новая вакансия», фильтр и «Выйти» — три секции одной высоты, по
+   центру, на общей светлой подложке. */
+
+#recruiter-bar {
+    align-items: stretch !important;
+    justify-content: center;
+    gap: 14px !important;
+    background: #f3f5f2;
+    border: 1px solid #e6e9e4;
+    border-radius: 16px;
+    padding: 12px 14px !important;
+    margin-bottom: 14px;
+}
+
+#recruiter-bar > * {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 64px;
+    margin: 0 !important;
+}
+
+#recruiter-bar button {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 64px !important;
+}
+
+/* Соседние кнопки одного роста: «Открыть весь день» переносится на две
+   строки, и без этого «Снять день» рядом оказывалась ниже. */
+.gradio-container .row > button,
+.gradio-container .row > .block button {
+    height: 100%;
+}
+
+.gradio-container .row {
+    align-items: stretch !important;
+}
+
+/* Заголовок формы крупнее: «Вакансия №4» терялась среди полей. */
+#form-title p,
+#form-title h3 {
+    font-size: 28px !important;
+    font-weight: 700 !important;
+    color: #101828 !important;
+    margin: 6px 0 14px !important;
+}
+
+/* --- Высота помощника по экрану -----------------------------------------
+
+   Поле ответа должно быть видно всегда: на длинной переписке человек
+   иначе ищет его прокруткой. */
+
+#assistant-side {
+    max-height: calc(100vh - 40px);
+    display: flex;
+    flex-direction: column;
+}
+
+#assistant-chat {
+    flex: 1 1 auto !important;
+    min-height: 240px !important;
+    height: auto !important;
+}
+
+#assistant-input {
+    flex: 0 0 auto;
+}
+
+@media (max-width: 900px) {
+    #assistant-side {
+        max-height: 100% !important;
+    }
+}
+
+/* Фильтр в одну строку: переносясь на три, он раздувал всю верхнюю
+   полосу до полутора сотен пикселей. */
+#recruiter-bar [role="radiogroup"],
+#recruiter-bar .wrap {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    gap: 8px !important;
+}
+
+#recruiter-bar > * {
+    min-height: 76px;
+}
+
+#recruiter-bar button {
+    min-height: 56px !important;
+    height: auto !important;
+}
+
+#recruiter-bar label:has(input[type="radio"]) {
+    white-space: nowrap;
+    padding: 6px 12px !important;
+}
+
+/* Без переноса третий вариант фильтра уезжал в горизонтальную прокрутку.
+   Возвращаем перенос, но делаем сами пилюли компактнее. */
+#recruiter-bar [role="radiogroup"],
+#recruiter-bar .wrap {
+    flex-wrap: wrap !important;
+    overflow: visible !important;
+    justify-content: center;
+}
+
+#recruiter-bar label:has(input[type="radio"]) {
+    font-size: 17px !important;
+    padding: 5px 10px !important;
+}
+
+#recruiter-bar label:has(input[type="radio"]) span {
+    font-size: 17px !important;
+}

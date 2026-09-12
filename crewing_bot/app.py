@@ -10,6 +10,7 @@ import os
 import re
 import secrets
 import sys
+import threading
 import time
 from calendar import monthrange
 from dataclasses import replace
@@ -697,7 +698,7 @@ def recruiter_browse(password: str, only: str = "все"):
     return _browse(found[:MAX_CARDS], f"Вакансий: {len(found)}")
 
 
-BLANK_FORM = ("", "", 6, 6500, "", "")
+BLANK_FORM = ("", "", 6, 6500, "", "", "", "", "", "")
 
 
 def recruiter_new_vacancy(password: str):
@@ -962,7 +963,7 @@ def recruiter_load_vacancy(password: str, vacancy_id):
     Пустой выбор очищает форму — так рекрутер заводит новую вакансию,
     не рискуя случайно переписать чужую.
     """
-    blank = ("", "", 6, 6500, "", "")
+    blank = BLANK_FORM
     error = _guard(password)
     if error or not vacancy_id:
         return blank
@@ -984,12 +985,17 @@ def recruiter_load_vacancy(password: str, vacancy_id):
         vacancy["salary_usd"],
         vacancy["requirements"] or "",
         "\n".join(vacancy["screening_questions"] or []),
+        vacancy.get("built_year") or "",
+        vacancy.get("dwt") or "",
+        vacancy.get("engine") or "",
+        vacancy.get("embarkation") or "",
     )
 
 
 def recruiter_save_vacancy(password, vacancy_id, rank, vessel_type,
                            contract_months, salary_usd, requirements,
-                           questions_text) -> str:
+                           questions_text, built_year="", dwt="", engine="",
+                           embarkation="") -> str:
     """Сохранить форму: создать новую вакансию или изменить выбранную."""
     error = _guard(password)
     if error:
@@ -1013,10 +1019,15 @@ def recruiter_save_vacancy(password, vacancy_id, rank, vessel_type,
         if vacancy_id:
             saved = db.update_vacancy(conn, int(vacancy_id), rank, vessel_type,
                                       months, salary, requirements, questions)
+            if saved:
+                db.update_vessel_details(conn, int(vacancy_id), built_year,
+                                         dwt, engine, embarkation)
             return (f"✅ Вакансия #{int(vacancy_id)} обновлена."
                     if saved else "⚠️ Такой вакансии больше нет — обновите список.")
         new_id = db.create_vacancy(conn, rank, vessel_type, months, salary,
                                    requirements, questions)
+        db.update_vessel_details(conn, new_id, built_year, dwt, engine,
+                                 embarkation)
         return f"✅ Вакансия #{new_id} создана."
     finally:
         conn.close()
@@ -1033,38 +1044,92 @@ def vacancy_photo_url(vacancy) -> str:
     return f"{address}{vessel_photo(vacancy['vessel_type'])}" if address else ""
 
 
-def recruiter_publish(password: str, vacancy_id) -> str:
-    """Опубликовать вакансию в канале или обновить уже опубликованную."""
-    error = _guard(password)
-    if error:
-        return error
-    if not vacancy_id:
-        return "⚠️ Сначала выберите вакансию."
+# Ежедневная выкладка вакансий в канал. Час задаётся настройкой:
+# 08:00 по умолчанию, время сервиса — UTC.
+PUBLISH_HOUR = int(os.getenv("PUBLISH_HOUR", "8"))
+PUBLISH_MARK = "last_channel_digest"
+
+
+def daily_publication_due(conn, now=None) -> bool:
+    """Пора ли выкладывать вакансии.
+
+    Отметка о сделанном лежит в базе, а не в памяти: бесплатный хостинг
+    засыпает и просыпается, и без отметки канал получал бы один и тот же
+    список по нескольку раз за день.
+    """
+    now = now or datetime.utcnow()
+    if now.hour < PUBLISH_HOUR:
+        return False
+    return db.get_setting(conn, PUBLISH_MARK) != now.date().isoformat()
+
+
+def publish_open_vacancies(conn, now=None) -> int:
+    """Выложить в канал все открытые вакансии. Возвращает число объявлений.
+
+    Уже опубликованные правятся, новые публикуются: так в канале не
+    копятся повторы одной и той же вакансии.
+    """
+    now = now or datetime.utcnow()
     if not telegram.channel_configured():
-        return ("⚠️ Канал не настроен: нужны TELEGRAM_BOT_TOKEN и "
-                "TELEGRAM_CHANNEL в настройках сервиса.")
+        return 0
 
-    conn, failure = _open_conn()
-    if failure:
-        return failure
-    try:
-        vacancy = db.get_vacancy(conn, int(vacancy_id))
-        if not vacancy:
-            return "⚠️ Такой вакансии больше нет."
-
-        posted = vacancy.get("channel_message_id")
-        if posted and telegram.update_vacancy_post(posted, vacancy, site_url()):
-            return f"✅ Объявление в канале обновлено (вакансия #{vacancy['id']})."
-
+    posted = 0
+    for vacancy in db.list_all_vacancies(conn, None, "open"):
+        message_id = vacancy.get("channel_message_id")
+        if message_id and telegram.update_vacancy_post(message_id, vacancy,
+                                                       site_url()):
+            posted += 1
+            continue
         message_id = telegram.publish_vacancy(
             vacancy, vacancy_photo_url(vacancy), site_url())
-        if not message_id:
-            return ("⚠️ Телеграм не принял объявление. Проверьте, что бот — "
-                    "администратор канала и может публиковать.")
-        db.set_channel_message(conn, vacancy["id"], message_id)
+        if message_id:
+            db.set_channel_message(conn, vacancy["id"], message_id)
+            posted += 1
+
+    db.set_setting(conn, PUBLISH_MARK, now.date().isoformat())
+    return posted
+
+
+def run_daily_publication() -> int:
+    """Один заход ежедневной выкладки. Ошибки не роняют приложение."""
+    if not telegram.channel_configured():
+        return 0
+    try:
+        conn = db.connect()
+    except RuntimeError:
+        return 0
+    try:
+        if not _ensure_schema(conn) or not daily_publication_due(conn):
+            return 0
+        return publish_open_vacancies(conn)
+    except Exception:
+        logger.exception("Ежедневная публикация в канал не удалась")
+        return 0
     finally:
-        conn.close()
-    return f"✅ Вакансия #{vacancy['id']} опубликована в канале."
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def start_daily_publication(interval_seconds: int = 300) -> None:
+    """Завести часового, который раз в несколько минут смотрит на время.
+
+    Почему не «ровно в восемь»: на бесплатном хостинге сервис засыпает,
+    и точный момент он бы просто проспал. Проверка по отметке в базе
+    даёт другое обещание — выложить сегодня, при первой возможности
+    после назначенного часа, и ровно один раз.
+    """
+    if not telegram.channel_configured():
+        logger.info("Канал не настроен — ежедневная публикация выключена")
+        return
+
+    def loop():
+        while True:
+            run_daily_publication()
+            time.sleep(interval_seconds)
+
+    threading.Thread(target=loop, daemon=True, name="channel-digest").start()
 
 
 def announce_closed(conn, vacancy_id) -> None:
@@ -1570,7 +1635,7 @@ def build_ui():
             with gr.Group(visible=False) as workspace:
                 with gr.Row():
                     with gr.Column(scale=3):
-                        with gr.Row():
+                        with gr.Row(elem_id="recruiter-bar"):
                             new_button = gr.Button("+ Новая вакансия",
                                                    variant="primary", scale=1)
                             status = gr.Radio(
@@ -1581,7 +1646,8 @@ def build_ui():
                             "", elem_id="recruiter-message")
 
                         with gr.Group(visible=False) as vacancy_form:
-                            form_title = gr.Markdown("### Новая вакансия")
+                            form_title = gr.Markdown(
+                                "### Новая вакансия", elem_id="form-title")
                             rank = gr.Textbox(label="Должность",
                                               placeholder="2nd Engineer")
                             vessel_type = gr.Textbox(label="Тип судна",
@@ -1591,6 +1657,17 @@ def build_ui():
                                                             value=6)
                                 salary_usd = gr.Number(label="Ставка, $",
                                                        value=6500)
+                            # Данные судна для объявления в канале.
+                            with gr.Row():
+                                built_year = gr.Textbox(label="Год постройки",
+                                                        placeholder="1996")
+                                dwt = gr.Textbox(label="DWT",
+                                                 placeholder="3274")
+                            with gr.Row():
+                                engine = gr.Textbox(label="Двигатель",
+                                                    placeholder="Wartsila 8R32E")
+                                embarkation = gr.Textbox(
+                                    label="Посадка", placeholder="ASAP")
                             requirements = gr.Textbox(label="Требования", lines=3)
                             questions_text = gr.Textbox(
                                 label="Вопросы скрининга — по одному в строке. "
@@ -1603,8 +1680,6 @@ def build_ui():
                             with gr.Row():
                                 close_button = gr.Button("Закрыть вакансию")
                                 reopen_button = gr.Button("Открыть снова")
-                            publish_button = gr.Button(
-                                "Опубликовать в канале Telegram")
                             form_message = gr.Markdown(
                                 "", elem_id="vacancy-form-message")
                             gr.HTML(
@@ -1667,7 +1742,8 @@ def build_ui():
                                     + day_buttons + hour_buttons)
 
                 form_fields = [rank, vessel_type, contract_months, salary_usd,
-                               requirements, questions_text]
+                               requirements, questions_text,
+                               built_year, dwt, engine, embarkation]
                 form_outputs = ([editing_id, vacancy_form, form_title,
                                  form_message] + form_fields)
                 grid_inputs = [session_password, status]
@@ -1702,12 +1778,6 @@ def build_ui():
                         secret, chosen, False),
                     inputs=[session_password, editing_id], outputs=form_message,
                 ).then(recruiter_browse, inputs=grid_inputs, outputs=grid_outputs)
-
-                publish_button.click(
-                    recruiter_publish,
-                    inputs=[session_password, editing_id],
-                    outputs=form_message,
-                )
 
                 reopen_button.click(
                     lambda secret, chosen: recruiter_toggle_vacancy(
@@ -1867,6 +1937,9 @@ def build_app():
     # места для статики у него нет.
     from fastapi.staticfiles import StaticFiles
     api.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+    # Ежедневная выкладка вакансий в канал.
+    start_daily_publication()
 
     @api.post("/telegram/webhook")
     async def telegram_webhook(request: Request):

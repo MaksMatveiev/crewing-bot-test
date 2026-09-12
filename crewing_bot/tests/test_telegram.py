@@ -157,13 +157,48 @@ def test_channel_needs_both_token_and_address(monkeypatch):
     assert telegram.channel_configured() is True
 
 
-def test_post_shows_what_decides_at_a_glance():
-    post = telegram.build_vacancy_post(_vacancy(), "https://example.com")
+def test_post_shows_what_decides_at_a_glance(monkeypatch):
+    """Должность со ставкой сверху, данные судна ниже, контакты внизу."""
+    monkeypatch.delenv("SITE_URL", raising=False)
+    monkeypatch.delenv("AGENCY_EMAIL", raising=False)
+    monkeypatch.delenv("AGENCY_PHONES", raising=False)
 
-    assert "2nd Engineer" in post
-    assert "bulk carrier" in post
-    assert "$6500" in post
-    assert "6 мес" in post
+    post = telegram.build_vacancy_post(
+        dict(_vacancy(), built_year="1996", dwt="3274",
+             engine="Wartsila 8R32E", embarkation="ASAP"),
+        "https://example.com")
+
+    assert post.startswith("2nd Engineer - $6500")
+    assert "Date of Embarkation: ASAP" in post
+    assert "Built: 1996" in post
+    assert "bulk carrier - 3274 DWT" in post
+    assert "Contract duration: 6 +/- 1 months" in post
+    assert "Wartsila 8R32E" in post
+    assert "https://example.com" in post
+
+
+def test_post_skips_empty_vessel_details(monkeypatch):
+    """Пустое поле лучше пропустить, чем писать «Built: —»."""
+    monkeypatch.delenv("AGENCY_EMAIL", raising=False)
+    monkeypatch.delenv("AGENCY_PHONES", raising=False)
+
+    post = telegram.build_vacancy_post(_vacancy())
+
+    assert "Built:" not in post
+    assert "DWT" not in post
+    assert "Date of Embarkation: ASAP" in post
+
+
+def test_post_carries_agency_contacts(monkeypatch):
+    monkeypatch.setenv("AGENCY_EMAIL", "crew@example.com")
+    monkeypatch.setenv("AGENCY_PHONES", "+38 073 111; +38 073 222")
+    monkeypatch.setenv("SITE_URL", "https://example.com")
+
+    post = telegram.build_vacancy_post(_vacancy())
+
+    assert "crew@example.com" in post
+    assert "+38 073 111" in post
+    assert "+38 073 222" in post
     assert "https://example.com" in post
 
 

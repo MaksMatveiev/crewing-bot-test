@@ -100,25 +100,65 @@ def channel_configured() -> bool:
     return bool(os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHANNEL"))
 
 
-def build_vacancy_post(vacancy: dict, site_url: str = "") -> str:
-    """Текст объявления для канала.
+def agency_contacts() -> list:
+    """Контакты агентства для подписи под объявлением.
 
-    Требования и вопросы скрининга сюда не идут: в канале нужен повод
-    открыть сайт, а подробности человек читает в карточке.
+    Берутся из настроек сервиса: в разных агентствах своя почта, свои
+    телефоны и сайт, и держать их в коде незачем. Телефоны перечисляются
+    через точку с запятой.
     """
-    lines = [
-        f"⚓ {vacancy['rank']} — {vacancy['vessel_type']}",
-        "",
-        f"💵 ${vacancy['salary_usd']} / мес",
-        f"📆 Контракт {vacancy['contract_months']} мес",
-    ]
+    lines = []
+    email = os.getenv("AGENCY_EMAIL", "").strip()
+    phones = os.getenv("AGENCY_PHONES", "").strip()
+    site = os.getenv("SITE_URL", "").strip()
+    if email:
+        lines.append(f"✉️ {email}")
+    for phone in (part.strip() for part in phones.split(";")):
+        if phone:
+            lines.append(f"📱 {phone}")
+    if site:
+        lines.append(f"🌐 {site}")
+    return lines
+
+
+def build_vacancy_post(vacancy: dict, site_url: str = "") -> str:
+    """Объявление для канала — в привычном морякам виде.
+
+    Сверху должность и ставка, ниже данные судна, внизу контакты. Пустые
+    поля пропускаются: строка «Built: —» не добавляет ничего.
+    """
+    head = f"{vacancy['rank']} - ${vacancy['salary_usd']}"
+    lines = [head, ""]
+    if not vacancy.get("is_active", True):
+        lines = ["🚫 Вакансия закрыта", "", head, ""]
+
+    embarkation = (vacancy.get("embarkation") or "").strip()
+    lines.append(f"Date of Embarkation: {embarkation or 'ASAP'}")
+
+    built = (vacancy.get("built_year") or "").strip()
+    if built:
+        lines.append(f"Built: {built}")
+
+    dwt = (vacancy.get("dwt") or "").strip()
+    vessel = str(vacancy["vessel_type"])
+    lines.append(f"{vessel} - {dwt} DWT" if dwt else vessel)
+
+    lines.append(f"Contract duration: {vacancy['contract_months']} +/- 1 months")
+
+    engine = (vacancy.get("engine") or "").strip()
+    if engine:
+        lines += ["", engine]
+
     requirements = (vacancy.get("requirements") or "").strip()
     if requirements:
-        lines += ["", f"Требования: {requirements}"]
-    if not vacancy.get("is_active", True):
-        lines = ["🚫 Вакансия закрыта", ""] + lines
-    if site_url:
-        lines += ["", f"Записаться на интервью: {site_url}"]
+        lines += ["", requirements]
+
+    contacts = agency_contacts()
+    if site_url and not os.getenv("SITE_URL", "").strip():
+        contacts.append(f"🌐 {site_url}")
+    if contacts:
+        lines += [""] + contacts
+
     return "\n".join(lines)
 
 

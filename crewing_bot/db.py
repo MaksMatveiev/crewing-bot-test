@@ -149,6 +149,17 @@ COLUMN_MIGRATIONS = (
     # Номер объявления в канале: по нему пост правится, а не публикуется
     # заново при каждом сохранении вакансии.
     "ALTER TABLE vacancies ADD COLUMN IF NOT EXISTS channel_message_id BIGINT",
+    # Данные судна для объявления: год постройки, дедвейт, двигатель и
+    # когда выходить. Пустые поля в пост просто не попадают.
+    "ALTER TABLE vacancies ADD COLUMN IF NOT EXISTS built_year TEXT",
+    "ALTER TABLE vacancies ADD COLUMN IF NOT EXISTS dwt TEXT",
+    "ALTER TABLE vacancies ADD COLUMN IF NOT EXISTS engine TEXT",
+    "ALTER TABLE vacancies ADD COLUMN IF NOT EXISTS embarkation TEXT",
+    # Отметки о сделанном: по ним ежедневная публикация понимает, что
+    # сегодня уже отработала.
+    "CREATE TABLE IF NOT EXISTS settings ("
+    " key TEXT PRIMARY KEY,"
+    " value TEXT NOT NULL)",
 )
 
 # Схема одна на процесс: init_schema вызывается на каждый ход диалога и на
@@ -252,7 +263,8 @@ def list_all_vacancies(conn, search: str = None, only: str = None) -> list:
     with conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(
             "SELECT id, rank, vessel_type, contract_months, salary_usd,"
-            " requirements, screening_questions, is_active, created_at"
+            " requirements, screening_questions, is_active, created_at,"
+            " channel_message_id, built_year, dwt, engine, embarkation"
             " FROM vacancies" + clause + " ORDER BY is_active DESC, id",
             tuple(params),
         )
@@ -297,6 +309,35 @@ def list_open_ranks(conn) -> list:
         return [row[0] for row in cur.fetchall()]
 
 
+def update_vessel_details(conn, vacancy_id: int, built_year, dwt, engine,
+                          embarkation) -> None:
+    """Данные судна для объявления. Пустые поля так и остаются пустыми."""
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE vacancies SET built_year = %s, dwt = %s, engine = %s,"
+            " embarkation = %s WHERE id = %s",
+            (built_year or None, dwt or None, engine or None,
+             embarkation or None, vacancy_id),
+        )
+
+
+def get_setting(conn, key: str):
+    """Отметка о сделанном или None."""
+    with conn, conn.cursor() as cur:
+        cur.execute("SELECT value FROM settings WHERE key = %s", (key,))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+
+def set_setting(conn, key: str, value: str) -> None:
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO settings (key, value) VALUES (%s, %s)"
+            " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (key, value),
+        )
+
+
 def set_channel_message(conn, vacancy_id: int, message_id) -> None:
     """Запомнить номер объявления в канале."""
     with conn, conn.cursor() as cur:
@@ -335,7 +376,8 @@ def get_vacancy(conn, vacancy_id: int):
         cur.execute(
             "SELECT id, rank, vessel_type, contract_months, salary_usd,"
             " requirements, screening_questions, is_active,"
-            " channel_message_id FROM vacancies WHERE id = %s",
+            " channel_message_id, built_year, dwt, engine, embarkation"
+            " FROM vacancies WHERE id = %s",
             (vacancy_id,),
         )
         row = cur.fetchone()

@@ -26,3 +26,9 @@ services:
         sync: false
       - key: SITE_URL
         sync: false
+      - key: AGENCY_EMAIL
+        sync: false
+      - key: AGENCY_PHONES
+        sync: false
+      - key: PUBLISH_HOUR
+        value: "8"
