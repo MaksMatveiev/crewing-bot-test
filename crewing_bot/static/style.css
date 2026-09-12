@@ -1679,3 +1679,19 @@ gradio-app,
         font-size: 17px !important;
     }
 }
+
+/* Надпись по центру у всех кнопок: Gradio выравнивает текст по левому
+   краю, и в широкой кнопке он висел сбоку. */
+.gradio-container button {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+}
+
+.gradio-container [role="tablist"] button[role="tab"],
+.gradio-container .vac-card button,
+#calendar-grid button,
+#hours-grid button {
+    display: flex !important;
+}
