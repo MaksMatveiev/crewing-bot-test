@@ -224,6 +224,67 @@ def list_active_vacancies(conn, rank: str = None, vessel_type: str = None) -> li
         return [dict(row) for row in cur.fetchall()]
 
 
+def list_all_vacancies(conn, search: str = None, only: str = None) -> list:
+    """Вакансии для рекрутера — включая закрытые.
+
+    search — поиск по должности, типу судна и требованиям.
+    only — "open" или "closed"; всё остальное означает «показать все».
+
+    Отличается от list_active_vacancies тем, что кандидату закрытые
+    вакансии не видны никогда, а рекрутеру они нужны: по ним есть
+    заявки и история.
+    """
+    where = []
+    params = []
+    if only == "open":
+        where.append("is_active")
+    elif only == "closed":
+        where.append("NOT is_active")
+    if search and search.strip():
+        where.append("(rank ILIKE %s OR vessel_type ILIKE %s OR requirements ILIKE %s)")
+        pattern = f"%{search.strip()}%"
+        params += [pattern, pattern, pattern]
+
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    with conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(
+            "SELECT id, rank, vessel_type, contract_months, salary_usd,"
+            " requirements, screening_questions, is_active, created_at"
+            " FROM vacancies" + clause + " ORDER BY is_active DESC, id",
+            tuple(params),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def update_vacancy(conn, vacancy_id: int, rank, vessel_type, contract_months,
+                   salary_usd, requirements, screening_questions) -> bool:
+    """Изменить вакансию. False, если такой нет.
+
+    Удаления в проекте нет намеренно: вакансию закрывают, а не стирают —
+    на неё ссылаются заявки, и терять их вместе с вакансией нельзя.
+    """
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE vacancies SET rank = %s, vessel_type = %s,"
+            " contract_months = %s, salary_usd = %s, requirements = %s,"
+            " screening_questions = %s WHERE id = %s RETURNING id",
+            (rank, vessel_type, contract_months, salary_usd, requirements,
+             json.dumps(list(screening_questions), ensure_ascii=False),
+             vacancy_id),
+        )
+        return cur.fetchone() is not None
+
+
+def set_vacancy_active(conn, vacancy_id: int, active: bool) -> bool:
+    """Закрыть или снова открыть вакансию. False, если такой нет."""
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE vacancies SET is_active = %s WHERE id = %s RETURNING id",
+            (bool(active), vacancy_id),
+        )
+        return cur.fetchone() is not None
+
+
 def list_open_ranks(conn) -> list:
     """Должности, которые встречаются в открытых вакансиях."""
     with conn, conn.cursor() as cur:

@@ -633,45 +633,165 @@ def recruiter_login(entered: str):
     return entered, True, ""
 
 
-def recruiter_vacancies(password: str) -> str:
+NEW_VACANCY_LABEL = "— новая вакансия —"
+
+STATUS_FILTERS = ("все", "открытые", "закрытые")
+
+
+def format_vacancy_table(vacancies) -> str:
+    """Список вакансий для рекрутера: что открыто, что закрыто.
+
+    Закрытые не прячем: на них ссылаются заявки, и рекрутеру нужна вся
+    картина, а не только актуальное. Статус подписан словом, а не только
+    цветом значка.
+    """
+    if not vacancies:
+        return "Ничего не найдено."
+
+    lines = []
+    for v in vacancies:
+        mark = "🟢 открыта" if v["is_active"] else "⚪ закрыта"
+        questions = len(v["screening_questions"] or [])
+        lines.append(
+            f"**#{v['id']} · {rank_icon(v['rank'])} {v['rank']} — "
+            f"{vessel_icon(v['vessel_type'])} {v['vessel_type']}**  \n"
+            f"{mark} · {v['contract_months']} мес · ${v['salary_usd']}/мес · "
+            f"вопросов скрининга: {questions}"
+        )
+    return "\n\n".join(lines)
+
+
+def vacancy_choices(vacancies) -> list:
+    """Варианты выпадающего списка: подпись и номер вакансии.
+
+    Первый вариант — пустой: он означает «создаю новую», и тогда форма
+    ни к какой вакансии не привязана.
+    """
+    options = [(NEW_VACANCY_LABEL, 0)]
+    for v in vacancies:
+        closed = "" if v["is_active"] else " · закрыта"
+        options.append(
+            (f"#{v['id']} {v['rank']} — {v['vessel_type']}{closed}", v["id"]))
+    return options
+
+
+def _status_filter(status: str):
+    """Подпись фильтра → значение для db.list_all_vacancies."""
+    return {"открытые": "open", "закрытые": "closed"}.get(status)
+
+
+def recruiter_vacancies(password: str, search: str = "", status: str = "все"):
+    """Список вакансий с поиском и фильтром по статусу.
+
+    Возвращает пару: текст списка и обновление выпадающего списка —
+    после любой правки оба должны показывать одно и то же.
+    """
     error = _guard(password)
     if error:
-        return error
+        return error, gr.update()
+
     conn, error = _open_conn()
     if error:
-        return error
+        return error, gr.update()
     try:
-        vacancies = db.list_active_vacancies(conn)
+        found = db.list_all_vacancies(conn, search, _status_filter(status))
     finally:
         conn.close()
-    if not vacancies:
-        return "Вакансий пока нет."
-    return "\n".join(
-        f"#{v['id']} {v['rank']} — {v['vessel_type']}, {v['contract_months']} мес, "
-        f"${v['salary_usd']}, вопросов скрининга: {len(v['screening_questions'])}"
-        for v in vacancies
+
+    return format_vacancy_table(found), gr.update(choices=vacancy_choices(found))
+
+
+def recruiter_load_vacancy(password: str, vacancy_id):
+    """Подставить выбранную вакансию в поля формы.
+
+    Пустой выбор очищает форму — так рекрутер заводит новую вакансию,
+    не рискуя случайно переписать чужую.
+    """
+    blank = ("", "", 6, 6500, "", "")
+    error = _guard(password)
+    if error or not vacancy_id:
+        return blank
+
+    conn, error = _open_conn()
+    if error:
+        return blank
+    try:
+        vacancy = db.get_vacancy(conn, int(vacancy_id))
+    finally:
+        conn.close()
+    if not vacancy:
+        return blank
+
+    return (
+        vacancy["rank"],
+        vacancy["vessel_type"],
+        vacancy["contract_months"],
+        vacancy["salary_usd"],
+        vacancy["requirements"] or "",
+        "\n".join(vacancy["screening_questions"] or []),
     )
 
 
-def recruiter_add_vacancy(password, rank, vessel_type, contract_months,
-                          salary_usd, requirements, questions_text) -> str:
+def recruiter_save_vacancy(password, vacancy_id, rank, vessel_type,
+                           contract_months, salary_usd, requirements,
+                           questions_text) -> str:
+    """Сохранить форму: создать новую вакансию или изменить выбранную."""
     error = _guard(password)
     if error:
         return error
     if not rank or not vessel_type:
         return "⚠️ Должность и тип судна обязательны."
-    questions = [line.strip() for line in (questions_text or "").splitlines() if line.strip()]
+
+    try:
+        months = int(contract_months)
+        salary = int(salary_usd)
+    except (TypeError, ValueError):
+        return "⚠️ Контракт и ставка — целые числа."
+
+    questions = [line.strip() for line in (questions_text or "").splitlines()
+                 if line.strip()] or DEFAULT_SCREENING_QUESTIONS
+
     conn, error = _open_conn()
     if error:
         return error
     try:
-        vacancy_id = db.create_vacancy(
-            conn, rank, vessel_type, int(contract_months), int(salary_usd),
-            requirements, questions or DEFAULT_SCREENING_QUESTIONS,
-        )
+        if vacancy_id:
+            saved = db.update_vacancy(conn, int(vacancy_id), rank, vessel_type,
+                                      months, salary, requirements, questions)
+            return (f"✅ Вакансия #{int(vacancy_id)} обновлена."
+                    if saved else "⚠️ Такой вакансии больше нет — обновите список.")
+        new_id = db.create_vacancy(conn, rank, vessel_type, months, salary,
+                                   requirements, questions)
+        return f"✅ Вакансия #{new_id} создана."
     finally:
         conn.close()
-    return f"✅ Вакансия #{vacancy_id} создана."
+
+
+def recruiter_toggle_vacancy(password, vacancy_id, open_it: bool) -> str:
+    """Закрыть вакансию или открыть её снова.
+
+    Удаления в панели нет намеренно: на вакансию ссылаются заявки, и
+    стереть её — значит потерять историю кандидатов. Закрытая вакансия
+    просто перестаёт показываться в чате.
+    """
+    error = _guard(password)
+    if error:
+        return error
+    if not vacancy_id:
+        return "⚠️ Сначала выберите вакансию в списке."
+
+    conn, error = _open_conn()
+    if error:
+        return error
+    try:
+        changed = db.set_vacancy_active(conn, int(vacancy_id), open_it)
+    finally:
+        conn.close()
+    if not changed:
+        return "⚠️ Такой вакансии больше нет — обновите список."
+    return (f"✅ Вакансия #{int(vacancy_id)} снова открыта."
+            if open_it else f"✅ Вакансия #{int(vacancy_id)} закрыта — "
+                            "в чате её больше не предложат.")
 
 
 def recruiter_open_slots(password, day_text, start_hhmm, end_hhmm, step_min) -> str:
@@ -743,12 +863,27 @@ def _startup_greeting():
     return [{"role": "assistant", "content": text}]
 
 
+def style_version() -> str:
+    """Отпечаток файла стилей для адреса ссылки.
+
+    Без него браузер держит старый style.css после выкладки, и рекрутер
+    видит вчерашнее оформление, пока не почистит кеш вручную. Отпечаток
+    меняется вместе с файлом — и ссылка вместе с ним.
+    """
+    try:
+        stamp = (STATIC_DIR / "style.css").stat().st_mtime_ns
+    except OSError:
+        # Файла нет — страница просто останется без оформления.
+        return "0"
+    return format(stamp & 0xFFFFFFFF, "x")
+
+
 def build_ui():
     with gr.Blocks(title="Крюинг-агентство «Меридиан»") as demo:
         # В Gradio 6 у Blocks нет параметра css, поэтому подключаем стили
         # ссылкой на файл, который отдаёт само приложение. Заодно правка
         # внешнего вида не требует перезапуска сборки страницы.
-        gr.HTML("<link rel=\"stylesheet\" href=\"/static/style.css\">")
+        gr.HTML(f'<link rel="stylesheet" href="/static/style.css?v={style_version()}">')
         with gr.Tab("Кандидат"):
             state = gr.State({})
             # Приветствие попадает в разметку сразу, при сборке страницы:
@@ -779,27 +914,78 @@ def build_ui():
 
             with gr.Group(visible=False) as workspace:
                 gr.Markdown("### Вакансии")
-                vacancies_out = gr.Textbox(label="Открытые вакансии", lines=6)
-                gr.Button("Показать вакансии").click(
-                    recruiter_vacancies, inputs=session_password, outputs=vacancies_out
-                )
+                with gr.Row():
+                    search = gr.Textbox(
+                        label="Поиск", scale=3,
+                        placeholder="должность, тип судна или слово из требований")
+                    status = gr.Radio(
+                        list(STATUS_FILTERS), value="все", label="Показывать",
+                        scale=2)
+                refresh_button = gr.Button("Обновить список")
+                vacancies_out = gr.Markdown("Нажмите «Обновить список».")
 
+                gr.Markdown("### Добавить или изменить")
+                # Выпадающий список привязывает форму к вакансии. Пустой
+                # выбор — режим «новая»: так правка и создание живут в одной
+                # форме и не расходятся.
+                picker = gr.Dropdown(
+                    choices=[(NEW_VACANCY_LABEL, 0)], value=0,
+                    label="Вакансия", interactive=True)
                 rank = gr.Textbox(label="Должность", placeholder="2nd Engineer")
                 vessel_type = gr.Textbox(label="Тип судна", placeholder="bulk carrier")
-                contract_months = gr.Number(label="Контракт, мес", value=6)
-                salary_usd = gr.Number(label="Ставка, $", value=6500)
+                with gr.Row():
+                    contract_months = gr.Number(label="Контракт, мес", value=6)
+                    salary_usd = gr.Number(label="Ставка, $", value=6500)
                 requirements = gr.Textbox(label="Требования", lines=3)
                 questions_text = gr.Textbox(
                     label="Вопросы скрининга — по одному в строке. Пусто = набор по умолчанию",
                     lines=6,
                 )
-                add_out = gr.Textbox(label="Результат")
-                gr.Button("Добавить вакансию").click(
-                    recruiter_add_vacancy,
-                    inputs=[session_password, rank, vessel_type, contract_months,
-                            salary_usd, requirements, questions_text],
-                    outputs=add_out,
-                )
+                save_button = gr.Button("Сохранить", variant="primary")
+                with gr.Row():
+                    close_button = gr.Button("Закрыть вакансию")
+                    reopen_button = gr.Button("Открыть снова")
+                gr.Markdown(
+                    "_Удаления нет: на вакансию ссылаются заявки кандидатов. "
+                    "Закрытая вакансия просто не предлагается в чате._")
+                vacancy_message = gr.Markdown("")
+
+                form_fields = [rank, vessel_type, contract_months, salary_usd,
+                               requirements, questions_text]
+                list_inputs = [session_password, search, status]
+                list_outputs = [vacancies_out, picker]
+
+                refresh_button.click(recruiter_vacancies,
+                                     inputs=list_inputs, outputs=list_outputs)
+                search.submit(recruiter_vacancies,
+                              inputs=list_inputs, outputs=list_outputs)
+                status.change(recruiter_vacancies,
+                              inputs=list_inputs, outputs=list_outputs)
+
+                picker.change(recruiter_load_vacancy,
+                              inputs=[session_password, picker],
+                              outputs=form_fields)
+
+                # После сохранения и после закрытия список перечитывается:
+                # иначе рекрутер видит старое состояние и правит вслепую.
+                save_button.click(
+                    recruiter_save_vacancy,
+                    inputs=[session_password, picker] + form_fields,
+                    outputs=vacancy_message,
+                ).then(recruiter_vacancies, inputs=list_inputs, outputs=list_outputs)
+
+                close_button.click(
+                    lambda password, chosen: recruiter_toggle_vacancy(
+                        password, chosen, False),
+                    inputs=[session_password, picker], outputs=vacancy_message,
+                ).then(recruiter_vacancies, inputs=list_inputs, outputs=list_outputs)
+
+                reopen_button.click(
+                    lambda password, chosen: recruiter_toggle_vacancy(
+                        password, chosen, True),
+                    inputs=[session_password, picker], outputs=vacancy_message,
+                ).then(recruiter_vacancies, inputs=list_inputs, outputs=list_outputs)
+
 
                 gr.Markdown("### Слоты интервью")
                 gr.Markdown("Время слотов задаётся и хранится в **UTC** — "

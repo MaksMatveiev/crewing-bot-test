@@ -1,34 +1,19 @@
 import os
-from urllib.parse import urlsplit
 import psycopg2
 from datetime import date, timedelta
 
 import pytest
 
 from crewing_bot import db
+from crewing_bot.tests.dbguard import same_database
 
 # Только TEST_DATABASE_URL и никакого отката на DATABASE_URL: фикстура ниже
 # делает TRUNCATE, и отката хватило бы, чтобы команда из README вычистила
 # рабочую базу вместе с настоящими заявками кандидатов.
-def _same_database(first, second) -> bool:
-    """Ведут ли две строки подключения в одну и ту же базу.
-
-    Сравнивать их как текст недостаточно: строки могут отличаться
-    параметрами вроде ?application_name=... и при этом указывать на одно
-    место. Именно так рабочая база однажды и была вычищена прогоном
-    тестов — защита сравнивала текст и пропустила.
-    """
-    def key(url):
-        parts = urlsplit(url or "")
-        return (parts.hostname, parts.port, parts.path, parts.username)
-
-    return bool(first) and bool(second) and key(first) == key(second)
-
-
 TEST_DB_URL = os.getenv("TEST_DATABASE_URL")
 _LIVE_DB_URL = os.getenv("DATABASE_URL")
 
-if _same_database(TEST_DB_URL, _LIVE_DB_URL):
+if same_database(TEST_DB_URL, _LIVE_DB_URL):
     # Молча пропустить нельзя: человек думает, что тесты идут, а они бы
     # стёрли рабочие данные.
     TEST_DB_URL = None
@@ -476,26 +461,121 @@ def test_inactive_vacancy_is_not_offered(conn):
     assert db.list_open_ranks(conn) == ["2nd Engineer"]
 
 
-def test_guard_spots_same_database_behind_different_text():
-    """Защита обязана видеть одну базу за разными строками.
+def _mixed_vacancies(conn):
+    """Две открытые вакансии и одна закрытая — рекрутер видит все три."""
+    first = db.create_vacancy(conn, "2nd Engineer", "bulk carrier", 6, 6500,
+                              "опыт от 12 мес", ["STCW?"])
+    second = db.create_vacancy(conn, "AB", "tanker", 9, 1800,
+                               "танкерный опыт", ["Танкеры?"])
+    closed = db.create_vacancy(conn, "Cook", "container", 4, 1500,
+                               "камбуз", ["Опыт?"])
+    db.set_vacancy_active(conn, closed, False)
+    return first, second, closed
 
-    Параметр в конце строки её не меняет — именно на этом рабочая база
-    однажды и была вычищена.
+
+def test_recruiter_sees_closed_vacancies_too(conn):
+    """Кандидату закрытые не видны, рекрутеру — обязаны быть видны."""
+    _mixed_vacancies(conn)
+
+    assert len(db.list_active_vacancies(conn)) == 2
+    assert len(db.list_all_vacancies(conn)) == 3
+
+
+def test_only_open_and_only_closed(conn):
+    first, second, closed = _mixed_vacancies(conn)
+
+    open_ids = [v["id"] for v in db.list_all_vacancies(conn, only="open")]
+    closed_ids = [v["id"] for v in db.list_all_vacancies(conn, only="closed")]
+
+    assert sorted(open_ids) == sorted([first, second])
+    assert closed_ids == [closed]
+
+
+def test_search_looks_at_rank_vessel_and_requirements(conn):
+    first, second, _ = _mixed_vacancies(conn)
+
+    by_rank = db.list_all_vacancies(conn, search="engineer")
+    by_vessel = db.list_all_vacancies(conn, search="TANKER")
+    by_requirement = db.list_all_vacancies(conn, search="камбуз")
+
+    assert [v["id"] for v in by_rank] == [first]
+    assert [v["id"] for v in by_vessel] == [second]
+    assert len(by_requirement) == 1
+
+
+def test_search_without_matches_returns_empty(conn):
+    _mixed_vacancies(conn)
+    assert db.list_all_vacancies(conn, search="подводная лодка") == []
+
+
+def test_blank_search_is_no_filter(conn):
+    """Пустое поле поиска не должно ничего отсекать."""
+    _mixed_vacancies(conn)
+    assert len(db.list_all_vacancies(conn, search="   ")) == 3
+
+
+def test_open_vacancies_come_first(conn):
+    _, _, closed = _mixed_vacancies(conn)
+    listed = db.list_all_vacancies(conn)
+    assert listed[-1]["id"] == closed
+
+
+def test_update_vacancy_changes_every_field(conn):
+    vacancy_id = _vacancy(conn)
+
+    changed = db.update_vacancy(conn, vacancy_id, "Bosun", "tanker", 8, 2400,
+                                "новые требования", ["Первый?", "Второй?"])
+
+    saved = db.get_vacancy(conn, vacancy_id)
+    assert changed is True
+    assert saved["rank"] == "Bosun"
+    assert saved["vessel_type"] == "tanker"
+    assert saved["contract_months"] == 8
+    assert saved["salary_usd"] == 2400
+    assert saved["requirements"] == "новые требования"
+    assert saved["screening_questions"] == ["Первый?", "Второй?"]
+
+
+def test_update_of_missing_vacancy_says_no(conn):
+    assert db.update_vacancy(conn, 999999, "AB", "tanker", 6, 1800, "", ["?"]) is False
+
+
+def test_closed_vacancy_disappears_from_chat_but_not_from_base(conn):
+    """Закрытие — не удаление: запись остаётся, её просто не предлагают."""
+    vacancy_id = _vacancy(conn)
+
+    assert db.set_vacancy_active(conn, vacancy_id, False) is True
+    assert db.list_active_vacancies(conn) == []
+    assert db.get_vacancy(conn, vacancy_id)["is_active"] is False
+
+
+def test_closed_vacancy_can_be_opened_again(conn):
+    vacancy_id = _vacancy(conn)
+    db.set_vacancy_active(conn, vacancy_id, False)
+
+    assert db.set_vacancy_active(conn, vacancy_id, True) is True
+    assert len(db.list_active_vacancies(conn)) == 1
+
+
+def test_toggle_of_missing_vacancy_says_no(conn):
+    assert db.set_vacancy_active(conn, 999999, False) is False
+
+
+def test_application_survives_closing_its_vacancy(conn):
+    """Заявка ссылается на вакансию — закрытие не должно её задеть.
+
+    Ради этого удаления в панели и нет: стереть вакансию значило бы
+    потерять или порвать заявки кандидатов.
     """
-    base = "postgresql://user:pass@db.example.com:5432/postgres"
-    assert _same_database(base, base + "?application_name=tests") is True
-    assert _same_database(base, base + "?sslmode=require") is True
+    vacancy_id = _vacancy(conn)
+    slot_id = _future_slots(conn, 1)[0]
+    candidate_id = db.upsert_candidate(conn, "Ivanov Ivan", "ivan@example.com", "Ukraine")
+    db.book_slot(conn, slot_id)
+    db.create_application(conn, candidate_id, vacancy_id, slot_id,
+                          _profile(), {"Опыт?": "24"})
 
+    db.set_vacancy_active(conn, vacancy_id, False)
 
-def test_guard_lets_through_a_different_database():
-    first = "postgresql://user:pass@db.example.com:5432/postgres"
-    second = "postgresql://user:pass@test.example.com:5432/postgres"
-    third = "postgresql://user:pass@db.example.com:5432/other"
-
-    assert _same_database(first, second) is False
-    assert _same_database(first, third) is False
-
-
-def test_guard_treats_missing_value_as_different():
-    assert _same_database(None, "postgresql://u:p@h:5432/d") is False
-    assert _same_database("", "") is False
+    rows = db.list_applications(conn)
+    assert len(rows) == 1
+    assert rows[0]["rank"] == "AB"
