@@ -556,106 +556,159 @@ def _handle_slot_choice(conn, message: str, state, vacancy):
     return confirmation, vars(chosen)
 
 
-NO_VACANCIES_TEXT = (
-    "По этой должности открытых вакансий сейчас нет. "
-    "Ниже — всё, что открыто на сегодня."
-)
+# Сетка карточек собрана из настоящих кнопок Gradio, а не из разметки:
+# нажатие внутри HTML до сервера не доходит. Поэтому карточек ровно
+# столько, сколько заготовлено, а лишние прячутся.
+MAX_CARDS = 24
+
+ALL_RANKS_LABEL = "Все должности"
 
 
-def gallery_caption(vacancy) -> str:
-    """Подпись под снимком в окне вакансий.
+def rank_choices(counts) -> list:
+    """Варианты выпадающего списка должностей с числом вакансий."""
+    total = sum(item["count"] for item in counts)
+    options = [(f"{ALL_RANKS_LABEL} ({total})", "")]
+    options += [(f"{item['rank']} ({item['count']})", item["rank"])
+                for item in counts]
+    return options
 
-    Без значков: кандидат ищет свою должность глазами, и картинки рядом
-    с текстом только мешают читать.
+
+def card_html(vacancy) -> str:
+    """Одна карточка: снимок судна и короткая выжимка."""
+    return (
+        f"<div class='vac-photo'><img src='{vessel_photo(vacancy['vessel_type'])}'"
+        f" alt='{_escape(vacancy['vessel_type'])}' loading='lazy'></div>"
+        "<div class='vac-text'>"
+        f"<h4>{_escape(vacancy['rank'])}</h4>"
+        f"<p class='vac-vessel'>{_escape(vacancy['vessel_type'])}</p>"
+        f"<p class='vac-salary'>${vacancy['salary_usd']} / мес</p>"
+        f"<p class='vac-meta'>контракт {vacancy['contract_months']} мес"
+        f"{'' if vacancy.get('is_active', True) else ' · закрыта'}</p>"
+        "</div>"
+    )
+
+
+def fill_cards(vacancies) -> list:
+    """Обновления для всех заготовленных карточек.
+
+    По две штуки на карточку: показать ли её и что в ней написано.
     """
-    return (f"{vacancy['rank']} — {vacancy['vessel_type']} · "
-            f"${vacancy['salary_usd']}/мес · {vacancy['contract_months']} мес")
+    updates = []
+    for position in range(MAX_CARDS):
+        if position < len(vacancies):
+            updates.append(gr.update(visible=True))
+            updates.append(gr.update(value=card_html(vacancies[position])))
+        else:
+            updates.append(gr.update(visible=False))
+            updates.append(gr.update(value=""))
+    return updates
 
 
-def vacancy_gallery(vacancies) -> list:
-    """Список пар «снимок, подпись» для окна вакансий."""
-    return [(str(STATIC_DIR / "vessels" / Path(vessel_photo(v["vessel_type"])).name),
-             gallery_caption(v)) for v in vacancies]
+def _browse(vacancies, message):
+    return [[v["id"] for v in vacancies], message] + fill_cards(vacancies)
 
 
-def candidate_search(rank_text: str):
-    """Найти открытые вакансии по должности кандидата.
-
-    Возвращает (галерея, номера вакансий, подпись). Номера хранятся
-    отдельно: по щелчку приходит только место в галерее, а какая это
-    вакансия — знает список.
-    """
+def candidate_ranks():
+    """Список должностей для выпадающего окна. Пустой, если база молчит."""
     conn, error = _open_conn()
     if error:
-        return [], [], error
+        return gr.update(choices=[(ALL_RANKS_LABEL, "")], value="")
     try:
-        wanted = (rank_text or "").strip()
-        found = db.list_all_vacancies(conn, wanted, "open") if wanted else []
-        message = ""
-        if wanted and not found:
-            found = db.list_all_vacancies(conn, None, "open")
-            message = NO_VACANCIES_TEXT
-        elif not wanted:
-            found = db.list_all_vacancies(conn, None, "open")
+        counts = db.list_rank_counts(conn)
+    finally:
+        conn.close()
+    return gr.update(choices=rank_choices(counts), value="")
+
+
+def candidate_browse(rank: str = ""):
+    """Показать вакансии — все или по выбранной должности."""
+    conn, error = _open_conn()
+    if error:
+        return _browse([], error)
+    try:
+        found = db.list_all_vacancies(conn, rank or None, "open")
     finally:
         conn.close()
 
     if not found:
-        return [], [], "Сейчас открытых вакансий нет. Загляните, пожалуйста, позже."
-    if not message:
-        message = f"Нашлось вакансий: {len(found)}. Нажмите на любую — откроется карточка."
-    return vacancy_gallery(found), [v["id"] for v in found], message
+        return _browse([], "Сейчас по этой должности вакансий нет.")
+    return _browse(found[:MAX_CARDS], f"Открытых вакансий: {len(found)}")
 
 
-def _open_days_line(conn) -> str:
-    """Строка с ближайшими датами интервью или честное «дат пока нет»."""
-    days = db.list_open_days(conn)
-    if not days:
-        return ("Свободных дат для интервью пока нет — рекрутер откроет их "
-                "в ближайшее время.")
-    listed = ", ".join(item["day"].strftime("%d.%m") for item in days[:8])
-    return f"Свободные даты для интервью: {listed} (время UTC)."
+def candidate_start(vacancy_id: int, state_dict: dict):
+    """Нажатие «Записаться» на карточке: открыть помощника и начать анкету."""
+    history, state = candidate_sign_up(vacancy_id, state_dict)
+    return history, state, gr.update(visible=True)
 
 
-def candidate_card(vacancy_id: int):
-    """Карточка выбранной вакансии и доступные даты.
+def candidate_reply(message: str, history, state_dict: dict):
+    """Ответ кандидата помощнику.
 
-    Возвращает (разметка карточки, номер вакансии, показывать ли кнопку
-    записи). Кнопка появляется только когда карточка открыта: нажимать
-    «Записаться» до выбора вакансии не на что.
+    Свой маленький чат вместо готового ChatInterface: тот приносит с
+    собой кнопки повтора, отмены и счётчики, а здесь нужен разговор и
+    ничего кроме.
     """
-    if not vacancy_id:
-        return "", 0, gr.update(visible=False)
+    message = to_plain_text(message).strip()
+    history = list(history or [])
+    if not message:
+        return "", history, state_dict or {}
 
-    conn, error = _open_conn()
+    reply, state = handle(message, state_dict or {})
+    history.append({"role": "user", "content": message})
+    history.append({"role": "assistant", "content": reply})
+    return "", history, state
+
+
+def recruiter_browse(password: str, only: str = "все"):
+    """Вакансии рекрутера карточками — теми же, что видит кандидат."""
+    error = _guard(password)
     if error:
-        return f"<p class='cards-empty'>{error}</p>", 0, gr.update(visible=False)
+        return _browse([], error)
+
+    conn, failure = _open_conn()
+    if failure:
+        return _browse([], failure)
     try:
-        vacancy = db.get_vacancy(conn, int(vacancy_id))
-        if not vacancy or not vacancy["is_active"]:
-            return ("<p class='cards-empty'>Эта вакансия уже закрыта. "
-                    "Выберите, пожалуйста, другую.</p>", 0,
-                    gr.update(visible=False))
-        dates = _open_days_line(conn)
+        found = db.list_all_vacancies(conn, None, _status_filter(only))
     finally:
         conn.close()
 
-    html = (
-        "<div class='vacancy-detail'>"
-        f"<img src='{vessel_photo(vacancy['vessel_type'])}'"
-        f" alt='{_escape(vacancy['vessel_type'])}'>"
-        "<div class='detail-body'>"
-        f"<h3>{_escape(vacancy['rank'])}</h3>"
-        f"<p class='detail-vessel'>{_escape(vacancy['vessel_type'])}</p>"
-        f"<p class='detail-salary'>${vacancy['salary_usd']} / мес</p>"
-        f"<p class='detail-meta'>Контракт {vacancy['contract_months']} мес"
-        f" · вакансия №{vacancy['id']}</p>"
-        f"<p class='detail-req'><b>Требования:</b> "
-        f"{_escape(vacancy['requirements']) or 'не указаны'}</p>"
-        f"<p class='detail-dates'>{_escape(dates)}</p>"
-        "</div></div>"
-    )
-    return html, vacancy["id"], gr.update(visible=True)
+    if not found:
+        return _browse([], "Вакансий пока нет.")
+    return _browse(found[:MAX_CARDS], f"Вакансий: {len(found)}")
+
+
+BLANK_FORM = ("", "", 6, 6500, "", "")
+
+
+def recruiter_new_vacancy(password: str):
+    """Открыть пустую форму. Поля очищаются, чтобы не переписать чужую."""
+    error = _guard(password)
+    if error:
+        return (0, gr.update(visible=False), "### Новая вакансия",
+                error) + BLANK_FORM
+
+    return (0, gr.update(visible=True), "### Новая вакансия", "") + BLANK_FORM
+
+
+def recruiter_edit_vacancy(password: str, vacancy_id: int):
+    """Открыть форму с данными выбранной вакансии."""
+    error = _guard(password)
+    if error:
+        return (0, gr.update(visible=False), "### Вакансия", error) + BLANK_FORM
+
+    fields = recruiter_load_vacancy(password, vacancy_id)
+    if fields == BLANK_FORM:
+        return (0, gr.update(visible=False), "### Вакансия",
+                "⚠️ Вакансия не открылась — обновите список.") + BLANK_FORM
+
+    return ((int(vacancy_id), gr.update(visible=True),
+             f"### Вакансия №{int(vacancy_id)}", "") + tuple(fields))
+
+
+def recruiter_close_form():
+    """Свернуть форму, ничего не сохраняя."""
+    return 0, gr.update(visible=False), ""
 
 
 def candidate_sign_up(vacancy_id: int, state_dict: dict):
@@ -701,10 +754,6 @@ def candidate_sign_up(vacancy_id: int, state_dict: dict):
                 f"{vacancy['vessel_type']}. Задам несколько вопросов "
                 f"для заявки.\n\n{funnel.next_question(state)}")
     return [{"role": "assistant", "content": greeting}], vars(state)
-
-
-def candidate_chat(message, history, state_dict):
-    return handle(to_plain_text(message), state_dict)
 
 
 DEFAULT_SCREENING_QUESTIONS = [
@@ -826,76 +875,9 @@ def _escape(value) -> str:
             .replace('"', "&quot;"))
 
 
-def vacancy_cards_html(vacancies, *, show_status: bool = True) -> str:
-    """Вакансии карточками: фотография судна, должность, ставка, срок.
-
-    show_status=False убирает пометку «открыта/закрыта» — кандидату
-    показывают только открытые, и подпись была бы лишней.
-    """
-    if not vacancies:
-        return "<p class='cards-empty'>Ничего не найдено.</p>"
-
-    cards = []
-    for v in vacancies:
-        status = ""
-        if show_status:
-            mark = "открыта" if v["is_active"] else "закрыта"
-            state = "open" if v["is_active"] else "closed"
-            status = f"<span class='card-status {state}'>{mark}</span>"
-        cards.append(
-            "<article class='vacancy-card'>"
-            f"<img src='{vessel_photo(v['vessel_type'])}'"
-            f" alt='{_escape(v['vessel_type'])}' loading='lazy'>"
-            "<div class='card-body'>"
-            f"<h4>{_escape(v['rank'])}</h4>"
-            f"<p class='card-vessel'>{_escape(v['vessel_type'])}</p>"
-            f"<p class='card-salary'>${v['salary_usd']} / мес</p>"
-            f"<p class='card-meta'>контракт {v['contract_months']} мес"
-            f" · №{v['id']}</p>"
-            f"{status}"
-            "</div></article>"
-        )
-    return "<div class='vacancy-cards'>" + "".join(cards) + "</div>"
-
-
-def vacancy_choices(vacancies) -> list:
-    """Варианты выпадающего списка: подпись и номер вакансии.
-
-    Первый вариант — пустой: он означает «создаю новую», и тогда форма
-    ни к какой вакансии не привязана.
-    """
-    options = [(NEW_VACANCY_LABEL, 0)]
-    for v in vacancies:
-        closed = "" if v["is_active"] else " · закрыта"
-        options.append(
-            (f"#{v['id']} {v['rank']} — {v['vessel_type']}{closed}", v["id"]))
-    return options
-
-
 def _status_filter(status: str):
     """Подпись фильтра → значение для db.list_all_vacancies."""
     return {"открытые": "open", "закрытые": "closed"}.get(status)
-
-
-def recruiter_vacancies(password: str, search: str = "", status: str = "все"):
-    """Список вакансий с поиском и фильтром по статусу.
-
-    Возвращает пару: текст списка и обновление выпадающего списка —
-    после любой правки оба должны показывать одно и то же.
-    """
-    error = _guard(password)
-    if error:
-        return error, gr.update()
-
-    conn, error = _open_conn()
-    if error:
-        return error, gr.update()
-    try:
-        found = db.list_all_vacancies(conn, search, _status_filter(status))
-    finally:
-        conn.close()
-
-    return vacancy_cards_html(found), gr.update(choices=vacancy_choices(found))
 
 
 def recruiter_load_vacancy(password: str, vacancy_id):
@@ -1014,21 +996,6 @@ def recruiter_applications(password: str) -> str:
         f"  вердикт: {row['verdict'] or '—'}"
         for row in rows
     )
-
-
-def _startup_greeting():
-    """Приветствие для первой отрисовки страницы.
-
-    Собирается один раз при старте приложения. База может быть
-    недоступна — тогда показываем текст без списка должностей, а список
-    добавит событие загрузки.
-    """
-    try:
-        text, _ = opening_message()
-    except Exception:
-        logger.exception("Не удалось собрать приветствие при старте")
-        text = GREETING_TEXT
-    return [{"role": "assistant", "content": text}]
 
 
 # Рабочий день интервью: с 08:00 до 14:00 UTC, приёмы по полчаса.
@@ -1197,6 +1164,58 @@ def _day_click(position: int):
     return click
 
 
+def _signup_click(position: int):
+    """Кнопка «Записаться» на карточке под этим местом в сетке.
+
+    Карточка знает только своё место: какая там вакансия, выясняется в
+    момент нажатия по списку найденного.
+    """
+    def click(ids, state_dict):
+        if not ids or position >= len(ids):
+            return gr.update(), state_dict or {}, gr.update()
+        return candidate_start(ids[position], state_dict)
+
+    return click
+
+
+def _edit_click(position: int):
+    """Кнопка «Изменить» на карточке рекрутера."""
+    def click(password, ids):
+        if not ids or position >= len(ids):
+            return recruiter_close_form() + ("", ) + BLANK_FORM
+        return recruiter_edit_vacancy(password, ids[position])
+
+    return click
+
+
+CARDS_PER_ROW = 3
+
+
+def _card_pool(button_label: str, variant: str = "primary"):
+    """Заготовить сетку карточек.
+
+    Карточки нельзя рисовать по числу вакансий: Gradio собирает страницу
+    один раз при запуске. Поэтому их ровно MAX_CARDS, а лишние скрыты.
+    """
+    cards = []
+    for start in range(0, MAX_CARDS, CARDS_PER_ROW):
+        with gr.Row():
+            for _ in range(CARDS_PER_ROW):
+                with gr.Column(visible=False, elem_classes="vac-card") as box:
+                    body = gr.HTML("")
+                    button = gr.Button(button_label, variant=variant)
+                cards.append((box, body, button))
+    return cards
+
+
+def _card_outputs(cards):
+    """Выходы обновления сетки: по два на карточку — видимость и текст."""
+    outputs = []
+    for box, body, _ in cards:
+        outputs += [box, body]
+    return outputs
+
+
 def style_version() -> str:
     """Отпечаток файла стилей для адреса ссылки.
 
@@ -1215,145 +1234,117 @@ def style_version() -> str:
 def build_ui():
     with gr.Blocks(title="Крюинг-агентство «Меридиан»") as demo:
         # В Gradio 6 у Blocks нет параметра css, поэтому подключаем стили
-        # ссылкой на файл, который отдаёт само приложение. Заодно правка
-        # внешнего вида не требует перезапуска сборки страницы.
+        # ссылкой на файл, который отдаёт само приложение.
         gr.HTML(f'<link rel="stylesheet" href="/static/style.css?v={style_version()}">')
+
         with gr.Tab("Кандидат"):
             state = gr.State({})
-
-            gr.Markdown("### Подбор вакансии")
-            with gr.Row():
-                rank_query = gr.Textbox(
-                    label="Ваша должность", scale=3,
-                    placeholder="например, 2nd Engineer")
-                search_vacancies = gr.Button(
-                    "Показать вакансии", variant="primary", scale=1)
-            search_message = gr.Markdown("")
-
-            # Номера вакансий держим отдельно: по щелчку приходит только
-            # место в галерее, а какая это вакансия — знает список.
             found_ids = gr.State([])
-            chosen_vacancy = gr.State(0)
 
-            # allow_preview=False: щелчок должен открывать карточку
-            # вакансии, а не увеличенный снимок судна.
-            vacancy_window = gr.Gallery(
-                label="Открытые вакансии", columns=4, height=260,
-                allow_preview=False, object_fit="cover",
-                elem_id="vacancy-window")
-            vacancy_detail = gr.HTML("")
-            sign_up_button = gr.Button(
-                "Записаться на интервью", variant="primary", visible=False)
-            # Приветствие попадает в разметку сразу, при сборке страницы:
-            # событие загрузки отрабатывает уже после первой отрисовки, и на
-            # спящем сервисе человек успевал увидеть пустой чат.
-            chatbot = gr.Chatbot(label="Chatbot", value=_startup_greeting())
-            gr.ChatInterface(
-                chatbot=chatbot,
-                fn=candidate_chat,
-                additional_inputs=[state],
-                additional_outputs=[state],
-                title="Запись на интервью",
-                description="Подберём вакансию по должности и типу флота и запишем на интервью.",
-            )
+            with gr.Row():
+                with gr.Column(scale=3, elem_id="vacancy-side"):
+                    gr.Markdown("## Вакансии")
+                    rank_picker = gr.Dropdown(
+                        choices=[(ALL_RANKS_LABEL, "")], value="",
+                        label="Должность", interactive=True,
+                        elem_id="rank-picker")
+                    browse_message = gr.Markdown("")
+                    cards = _card_pool("Записаться на интервью")
+
+                # Колонку помощника прячем целиком, а не только её
+                # содержимое: скрытая группа всё равно занимала бы место,
+                # и карточки оставались бы зажатыми.
+                with gr.Column(scale=1, elem_id="assistant-side",
+                               visible=False) as assistant:
+                    with gr.Group():
+                        gr.Markdown("### Помощник")
+                        chat = gr.Chatbot(
+                            height=420, show_label=False,
+                            elem_id="assistant-chat")
+                        answer = gr.Textbox(
+                            placeholder="Ваш ответ…", show_label=False,
+                            lines=2, submit_btn="Отправить")
+
+            browse_outputs = [found_ids, browse_message] + _card_outputs(cards)
+            rank_picker.change(candidate_browse, inputs=rank_picker,
+                               outputs=browse_outputs)
+
+            for position, (_, _, button) in enumerate(cards):
+                button.click(
+                    _signup_click(position),
+                    inputs=[found_ids, state],
+                    outputs=[chat, state, assistant],
+                )
+
+            answer.submit(candidate_reply, inputs=[answer, chat, state],
+                          outputs=[answer, chat, state])
 
         with gr.Tab("Рекрутер"):
             # Пароль живёт в состоянии вкладки и подставляется в каждый вызов.
-            # Скрытие блоков ниже — только внешний вид: обработчики на сервере
+            # Скрытие блоков — только внешний вид: обработчики на сервере
             # проверяют пароль сами, иначе защиту обошли бы запросом мимо
             # интерфейса.
             session_password = gr.State("")
+            editing_id = gr.State(0)
+            # Рекрутерская сетка держит свои номера вакансий отдельно от
+            # кандидатской: обе вкладки открыты в одном браузере разом.
+            recruiter_ids = gr.State([])
 
             with gr.Group() as login_box:
                 gr.Markdown("### Вход для рекрутера")
                 password = gr.Textbox(label="Пароль", type="password")
                 login_message = gr.Markdown("")
-                login_button = gr.Button("Войти")
+                login_button = gr.Button("Войти", variant="primary")
 
             with gr.Group(visible=False) as workspace:
                 with gr.Tabs():
                     with gr.Tab("Вакансии"):
-                        gr.Markdown("### Вакансии")
                         with gr.Row():
-                            search = gr.Textbox(
-                                label="Поиск", scale=3,
-                                placeholder="должность, тип судна или слово из требований")
+                            new_button = gr.Button("+ Новая вакансия",
+                                                   variant="primary", scale=1)
                             status = gr.Radio(
-                                list(STATUS_FILTERS), value="все", label="Показывать",
-                                scale=2)
-                        refresh_button = gr.Button("Обновить список")
-                        vacancies_out = gr.HTML("<p class='cards-empty'>Нажмите «Обновить список».</p>")
+                                list(STATUS_FILTERS), value="все",
+                                label="Показывать", scale=2)
+                        recruiter_message = gr.Markdown("")
 
-                        gr.Markdown("### Добавить или изменить")
-                        # Выпадающий список привязывает форму к вакансии. Пустой
-                        # выбор — режим «новая»: так правка и создание живут в одной
-                        # форме и не расходятся.
-                        picker = gr.Dropdown(
-                            choices=[(NEW_VACANCY_LABEL, 0)], value=0,
-                            label="Вакансия", interactive=True)
-                        rank = gr.Textbox(label="Должность", placeholder="2nd Engineer")
-                        vessel_type = gr.Textbox(label="Тип судна", placeholder="bulk carrier")
-                        with gr.Row():
-                            contract_months = gr.Number(label="Контракт, мес", value=6)
-                            salary_usd = gr.Number(label="Ставка, $", value=6500)
-                        requirements = gr.Textbox(label="Требования", lines=3)
-                        questions_text = gr.Textbox(
-                            label="Вопросы скрининга — по одному в строке. Пусто = набор по умолчанию",
-                            lines=6,
-                        )
-                        save_button = gr.Button("Сохранить", variant="primary")
-                        with gr.Row():
-                            close_button = gr.Button("Закрыть вакансию")
-                            reopen_button = gr.Button("Открыть снова")
-                        gr.Markdown(
-                            "_Удаления нет: на вакансию ссылаются заявки кандидатов. "
-                            "Закрытая вакансия просто не предлагается в чате._")
-                        vacancy_message = gr.Markdown("")
+                        with gr.Group(visible=False) as vacancy_form:
+                            form_title = gr.Markdown("### Новая вакансия")
+                            rank = gr.Textbox(label="Должность",
+                                              placeholder="2nd Engineer")
+                            vessel_type = gr.Textbox(label="Тип судна",
+                                                     placeholder="bulk carrier")
+                            with gr.Row():
+                                contract_months = gr.Number(label="Контракт, мес",
+                                                            value=6)
+                                salary_usd = gr.Number(label="Ставка, $",
+                                                       value=6500)
+                            requirements = gr.Textbox(label="Требования", lines=3)
+                            questions_text = gr.Textbox(
+                                label="Вопросы скрининга — по одному в строке. "
+                                      "Пусто = набор по умолчанию",
+                                lines=5)
+                            with gr.Row():
+                                save_button = gr.Button("Сохранить",
+                                                        variant="primary")
+                                cancel_button = gr.Button("Отмена")
+                            with gr.Row():
+                                close_button = gr.Button("Закрыть вакансию")
+                                reopen_button = gr.Button("Открыть снова")
+                            form_message = gr.Markdown("")
+                            gr.Markdown(
+                                "_Удаления нет: на вакансию ссылаются заявки "
+                                "кандидатов. Закрытая вакансия просто не "
+                                "предлагается кандидату._")
 
-                        form_fields = [rank, vessel_type, contract_months, salary_usd,
-                                       requirements, questions_text]
-                        list_inputs = [session_password, search, status]
-                        list_outputs = [vacancies_out, picker]
-
-                        refresh_button.click(recruiter_vacancies,
-                                             inputs=list_inputs, outputs=list_outputs)
-                        search.submit(recruiter_vacancies,
-                                      inputs=list_inputs, outputs=list_outputs)
-                        status.change(recruiter_vacancies,
-                                      inputs=list_inputs, outputs=list_outputs)
-
-                        picker.change(recruiter_load_vacancy,
-                                      inputs=[session_password, picker],
-                                      outputs=form_fields)
-
-                        # После сохранения и после закрытия список перечитывается:
-                        # иначе рекрутер видит старое состояние и правит вслепую.
-                        save_button.click(
-                            recruiter_save_vacancy,
-                            inputs=[session_password, picker] + form_fields,
-                            outputs=vacancy_message,
-                        ).then(recruiter_vacancies, inputs=list_inputs, outputs=list_outputs)
-
-                        close_button.click(
-                            lambda password, chosen: recruiter_toggle_vacancy(
-                                password, chosen, False),
-                            inputs=[session_password, picker], outputs=vacancy_message,
-                        ).then(recruiter_vacancies, inputs=list_inputs, outputs=list_outputs)
-
-                        reopen_button.click(
-                            lambda password, chosen: recruiter_toggle_vacancy(
-                                password, chosen, True),
-                            inputs=[session_password, picker], outputs=vacancy_message,
-                        ).then(recruiter_vacancies, inputs=list_inputs, outputs=list_outputs)
+                        recruiter_cards = _card_pool("Изменить", "secondary")
 
                     with gr.Tab("Календарь"):
-                        gr.Markdown("### Календарь интервью")
                         gr.Markdown(
-                            f"Нажмите на день — он откроется для интервью "
-                            f"с **{INTERVIEW_START} до {INTERVIEW_END} UTC** "
-                            f"(приёмы по {INTERVIEW_STEP_MIN} минут). Зелёный день "
-                            "уже открыт; нажатие на него снимает свободные слоты, "
-                            "а занятые оставляет.")
+                            f"Нажмите на день — он откроется для интервью с "
+                            f"**{INTERVIEW_START} до {INTERVIEW_END} UTC** "
+                            f"(приёмы по {INTERVIEW_STEP_MIN} минут). Зелёный "
+                            "день уже открыт; нажатие на него снимает "
+                            "свободные слоты, а занятые оставляет.")
 
                         today = date.today()
                         calendar_year = gr.State(today.year)
@@ -1374,46 +1365,82 @@ def build_ui():
                                 with gr.Row():
                                     for cell in range(7):
                                         day_buttons.append(
-                                            gr.Button("", interactive=False, scale=1))
+                                            gr.Button("", interactive=False,
+                                                      scale=1))
 
                         calendar_message = gr.Markdown("")
-                        calendar_outputs = [month_label, calendar_message] + day_buttons
+                        calendar_outputs = ([month_label, calendar_message]
+                                            + day_buttons)
 
-                        # Каждая клетка знает только своё место в сетке; какое это
-                        # число — решает обработчик по текущему месяцу. Иначе сетку
-                        # пришлось бы пересобирать при каждом листании.
-                        for position, button in enumerate(day_buttons):
-                            button.click(
-                                _day_click(position),
-                                inputs=[session_password, calendar_year, calendar_month],
-                                outputs=calendar_outputs,
-                            )
-
-                        previous_month.click(
-                            lambda password, year, month: recruiter_shift_month(
-                                password, year, month, -1),
-                            inputs=[session_password, calendar_year, calendar_month],
-                            outputs=[calendar_year, calendar_month] + calendar_outputs,
-                        )
-                        next_month.click(
-                            lambda password, year, month: recruiter_shift_month(
-                                password, year, month, 1),
-                            inputs=[session_password, calendar_year, calendar_month],
-                            outputs=[calendar_year, calendar_month] + calendar_outputs,
-                        )
-                        show_calendar = gr.Button("Обновить календарь")
-                        show_calendar.click(
-                            recruiter_calendar,
-                            inputs=[session_password, calendar_year, calendar_month],
-                            outputs=calendar_outputs,
-                        )
-
-                    with gr.Tab("Заявки"):
-                        gr.Markdown("### Заявки")
-                        applications_out = gr.Textbox(label="Заявки кандидатов", lines=20)
+                        gr.Markdown("### Кто записан")
+                        applications_out = gr.Textbox(
+                            label="Заявки кандидатов", lines=12)
                         gr.Button("Показать заявки").click(
-                            recruiter_applications, inputs=session_password, outputs=applications_out
-                        )
+                            recruiter_applications, inputs=session_password,
+                            outputs=applications_out)
+
+                form_fields = [rank, vessel_type, contract_months, salary_usd,
+                               requirements, questions_text]
+                form_outputs = ([editing_id, vacancy_form, form_title,
+                                 form_message] + form_fields)
+                grid_inputs = [session_password, status]
+                grid_outputs = ([recruiter_ids, recruiter_message]
+                                + _card_outputs(recruiter_cards))
+
+                status.change(recruiter_browse, inputs=grid_inputs,
+                              outputs=grid_outputs)
+                new_button.click(recruiter_new_vacancy, inputs=session_password,
+                                 outputs=form_outputs)
+                cancel_button.click(
+                    recruiter_close_form,
+                    outputs=[editing_id, vacancy_form, form_message])
+
+                for position, (_, _, button) in enumerate(recruiter_cards):
+                    button.click(
+                        _edit_click(position),
+                        inputs=[session_password, recruiter_ids],
+                        outputs=form_outputs,
+                    )
+
+                # После любой правки сетка перечитывается: иначе рекрутер
+                # видит старое состояние и правит вслепую.
+                save_button.click(
+                    recruiter_save_vacancy,
+                    inputs=[session_password, editing_id] + form_fields,
+                    outputs=form_message,
+                ).then(recruiter_browse, inputs=grid_inputs, outputs=grid_outputs)
+
+                close_button.click(
+                    lambda secret, chosen: recruiter_toggle_vacancy(
+                        secret, chosen, False),
+                    inputs=[session_password, editing_id], outputs=form_message,
+                ).then(recruiter_browse, inputs=grid_inputs, outputs=grid_outputs)
+
+                reopen_button.click(
+                    lambda secret, chosen: recruiter_toggle_vacancy(
+                        secret, chosen, True),
+                    inputs=[session_password, editing_id], outputs=form_message,
+                ).then(recruiter_browse, inputs=grid_inputs, outputs=grid_outputs)
+
+                for position, button in enumerate(day_buttons):
+                    button.click(
+                        _day_click(position),
+                        inputs=[session_password, calendar_year, calendar_month],
+                        outputs=calendar_outputs,
+                    )
+
+                previous_month.click(
+                    lambda secret, year, month: recruiter_shift_month(
+                        secret, year, month, -1),
+                    inputs=[session_password, calendar_year, calendar_month],
+                    outputs=[calendar_year, calendar_month] + calendar_outputs,
+                )
+                next_month.click(
+                    lambda secret, year, month: recruiter_shift_month(
+                        secret, year, month, 1),
+                    inputs=[session_password, calendar_year, calendar_month],
+                    outputs=[calendar_year, calendar_month] + calendar_outputs,
+                )
 
             def _login(entered):
                 stored, unlocked, message = recruiter_login(entered)
@@ -1425,50 +1452,24 @@ def build_ui():
                         message,
                         "")
 
-            # После входа обе вкладки заполняются сами: иначе рекрутер
-            # видит пустые поля и должен нажимать «Обновить» руками.
+            # После входа вкладки заполняются сами: иначе рекрутер видит
+            # пустоту и должен нажимать «Обновить» руками.
             login_button.click(
                 _login,
                 inputs=password,
                 outputs=[session_password, login_box, workspace,
                          login_message, password],
             ).then(
-                recruiter_vacancies, inputs=list_inputs, outputs=list_outputs
+                recruiter_browse, inputs=grid_inputs, outputs=grid_outputs
             ).then(
                 recruiter_calendar,
                 inputs=[session_password, calendar_year, calendar_month],
                 outputs=calendar_outputs,
             )
 
-        def _pick_from_window(ids, event: gr.SelectData):
-            """Щелчок по снимку в окне вакансий."""
-            if not ids or event.index is None or event.index >= len(ids):
-                return "", 0, gr.update(visible=False)
-            return candidate_card(ids[event.index])
-
-        search_vacancies.click(
-            candidate_search, inputs=rank_query,
-            outputs=[vacancy_window, found_ids, search_message],
-        )
-        rank_query.submit(
-            candidate_search, inputs=rank_query,
-            outputs=[vacancy_window, found_ids, search_message],
-        )
-        vacancy_window.select(
-            _pick_from_window, inputs=found_ids,
-            outputs=[vacancy_detail, chosen_vacancy, sign_up_button],
-        )
-        sign_up_button.click(
-            candidate_sign_up, inputs=[chosen_vacancy, state],
-            outputs=[chatbot, state],
-        )
-
-        def _open_chat():
-            """Приветствие и первый вопрос — сразу при открытии страницы."""
-            text, fresh = opening_message()
-            return [{"role": "assistant", "content": text}], fresh
-
-        demo.load(_open_chat, outputs=[chatbot, state])
+        # Список должностей и вакансии кандидат видит сразу при открытии.
+        demo.load(candidate_ranks, outputs=rank_picker).then(
+            candidate_browse, inputs=rank_picker, outputs=browse_outputs)
 
     return demo
 

@@ -1,30 +1,27 @@
-/* Морское оформление: фотография моря фоном, чат — белой карточкой поверх.
-   Фон отдаётся приложением по адресу /static/sea.jpg (см. build_app).
-   Фотография с Pexels, лицензия разрешает свободное использование. */
+/* Оформление крюингового бота: светлое и спокойное.
 
-/* Gradio выбирает тёмную тему по настройке системы. Внутренности чата
-   при этом остаются тёмными внутри нашей белой карточки. Поэтому
-   палитра задаётся переменными явно — оформление не зависит от того,
-   какая тема стоит у посетителя. */
+   Палитра задаётся переменными явно: Gradio выбирает тёмную тему по
+   настройке системы, и без этого половина страницы уезжала в тёмное
+   внутри светлой карточки. */
 :root,
 gradio-app,
 .gradio-container {
     color-scheme: light;
     --body-background-fill: transparent;
     --background-fill-primary: #ffffff;
-    --background-fill-secondary: #f2f8fc;
+    --background-fill-secondary: #f6f8fa;
     --block-background-fill: #ffffff;
-    --block-label-background-fill: #eef6fb;
+    --block-label-background-fill: #ffffff;
     --input-background-fill: #ffffff;
-    --border-color-primary: #d6e8f3;
+    --border-color-primary: #e3e7ec;
     --border-color-accent: #0e7490;
-    --body-text-color: #05253f;
-    --body-text-color-subdued: #2c5570;
-    --block-title-text-color: #062944;
-    --block-label-text-color: #062944;
+    --body-text-color: #101828;
+    --body-text-color-subdued: #5b6675;
+    --block-title-text-color: #101828;
+    --block-label-text-color: #5b6675;
     --link-text-color: #0e7490;
     --color-accent: #0e7490;
-    --color-accent-soft: #e3f2f9;
+    --color-accent-soft: #eaf4f8;
     --button-primary-background-fill: #0e7490;
     --button-primary-text-color: #ffffff;
 }
@@ -32,43 +29,51 @@ gradio-app,
 html,
 body {
     min-height: 100%;
-    background: #0b3a5e;
+    background: #eef1f5;
 }
 
-/* Фотография моря и лёгкая синяя вуаль поверх неё: без вуали белая
-   карточка теряется на светлых участках снимка. */
-body {
-    background-image:
-        linear-gradient(165deg, rgba(9, 46, 77, 0.55), rgba(6, 30, 52, 0.65)),
-        url("/static/sea.jpg");
-    background-size: cover, cover;
-    background-position: center, center;
-    background-repeat: no-repeat, no-repeat;
-    background-attachment: fixed, fixed;
-}
-
+/* Рабочее поле — три четверти экрана: карточки становятся в ряд, а не в
+   одну колонку. Ниже 1100 px запаса ширины нет, и поля только мешают. */
 .gradio-container {
-    font-size: 17px;
-    line-height: 1.55;
-    max-width: 940px !important;
-    margin: 36px auto !important;
-    padding: 26px 30px 30px !important;
+    font-size: 18px;
+    line-height: 1.6;
+    width: 75vw !important;
+    max-width: 75vw !important;
+    min-height: 88vh;
+    margin: 28px auto !important;
+    padding: 28px 34px 34px !important;
     background: #ffffff !important;
-    border-radius: 24px;
-    box-shadow: 0 26px 70px rgba(3, 22, 40, 0.5);
-    color: #05253f;
+    border-radius: 20px;
+    box-shadow: 0 12px 40px rgba(16, 24, 40, 0.1);
+    color: #101828;
+}
+
+@media (max-width: 1100px) {
+    .gradio-container {
+        width: 96vw !important;
+        max-width: 96vw !important;
+        padding: 18px 16px 22px !important;
+    }
 }
 
 .gradio-container h1,
 .gradio-container h2,
-.gradio-container h3 {
-    color: #062944 !important;
+.gradio-container h3,
+.gradio-container h4 {
+    color: #101828 !important;
+}
+
+.gradio-container h2 {
+    font-size: 26px !important;
+    font-weight: 700 !important;
+    margin-bottom: 4px !important;
 }
 
 /* Вкладки «Кандидат» и «Рекрутер» */
 .gradio-container button[role="tab"] {
+    font-size: 17px;
     font-weight: 600;
-    color: #2c5570 !important;
+    color: #5b6675 !important;
 }
 
 .gradio-container button[role="tab"][aria-selected="true"] {
@@ -76,31 +81,119 @@ body {
     border-bottom: 2px solid #0e7490 !important;
 }
 
-/* Сообщения: бот — светло-голубое облако, кандидат — морская волна */
-.gradio-container [data-testid="bot"],
-.gradio-container .message.bot {
-    background: #eef6fb !important;
-    border: 1px solid #d6e8f3 !important;
-    border-radius: 18px 18px 18px 6px !important;
-    color: #05253f !important;
+/* Служебная подпись Gradio внизу страницы человеку не нужна. */
+.gradio-container footer {
+    display: none !important;
 }
 
+/* --- Карточки вакансий -------------------------------------------------- */
+
+.vac-card {
+    background: #ffffff !important;
+    border: 1px solid #e3e7ec !important;
+    border-radius: 18px !important;
+    overflow: hidden;
+    padding: 0 !important;
+    gap: 0 !important;
+    box-shadow: 0 2px 10px rgba(16, 24, 40, 0.06);
+}
+
+/* Высота снимка фиксирована, а сам он обрезается по центру: у фотографий
+   разные пропорции, и без этого карточки в ряду разъезжались бы. */
+.vac-card .vac-photo img {
+    width: 100%;
+    height: 150px;
+    object-fit: cover;
+    display: block;
+    background: #eef1f5;
+}
+
+.vac-card .vac-text {
+    padding: 14px 16px 6px;
+}
+
+.vac-card h4 {
+    margin: 0 0 2px;
+    font-size: 19px;
+    font-weight: 700;
+}
+
+.vac-card .vac-vessel {
+    margin: 0 0 10px;
+    color: #5b6675 !important;
+    font-size: 16px;
+}
+
+.vac-card .vac-salary {
+    margin: 0 0 2px;
+    font-size: 20px;
+    font-weight: 700;
+    color: #0e7490 !important;
+}
+
+.vac-card .vac-meta {
+    margin: 0;
+    font-size: 15px;
+    color: #5b6675 !important;
+}
+
+.vac-card button {
+    margin: 12px 16px 16px !important;
+    border-radius: 12px !important;
+    font-size: 16px !important;
+    font-weight: 600;
+}
+
+/* --- Помощник ------------------------------------------------------------ */
+
+#assistant-side {
+    min-width: 280px;
+}
+
+#assistant-chat {
+    border-radius: 16px !important;
+    border: 1px solid #e3e7ec !important;
+}
+
+/* Реплики: кандидат — морской волной, помощник — светло-серым. */
 .gradio-container [data-testid="user"],
-.gradio-container .message.user {
+.gradio-container .message.user,
+.gradio-container .message.user * {
     background: #0e7490 !important;
     border: none !important;
-    border-radius: 18px 18px 6px 18px !important;
+    border-radius: 16px 16px 4px 16px !important;
     color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
 }
 
-/* Поля ввода и кнопки */
+.gradio-container [data-testid="bot"],
+.gradio-container .message.bot,
+.gradio-container .message.bot * {
+    background: #f6f8fa !important;
+    border: 1px solid #e9edf1 !important;
+    border-radius: 16px 16px 16px 4px !important;
+    color: #101828 !important;
+    -webkit-text-fill-color: #101828 !important;
+}
+
+.gradio-container [data-testid="bot"] a,
+.gradio-container .message.bot a {
+    color: #0b5e78 !important;
+    -webkit-text-fill-color: #0b5e78 !important;
+    text-decoration: underline;
+}
+
+/* --- Поля и кнопки ------------------------------------------------------- */
+
 .gradio-container textarea,
 .gradio-container input[type="text"],
-.gradio-container input[type="password"] {
-    border-radius: 14px !important;
-    border: 1px solid #cfe3ef !important;
+.gradio-container input[type="password"],
+.gradio-container input[type="number"] {
+    border-radius: 12px !important;
+    border: 1px solid #e3e7ec !important;
     background: #ffffff !important;
-    color: #05253f !important;
+    color: #101828 !important;
+    font-size: 17px !important;
 }
 
 .gradio-container button.primary,
@@ -109,89 +202,34 @@ body {
     border: none !important;
     color: #ffffff !important;
     border-radius: 12px !important;
+    font-size: 16px !important;
+    font-weight: 600;
 }
 
-.gradio-container footer {
-    opacity: 0.5;
-}
-
-/* Текст крупнее и контрастнее: бот читают с телефона, часто на солнце. */
-.gradio-container [data-testid="bot"],
-.gradio-container [data-testid="user"],
-.gradio-container .message {
-    font-size: 17px !important;
-    line-height: 1.55 !important;
-}
-
-.gradio-container textarea,
-.gradio-container input[type="text"],
-.gradio-container input[type="password"] {
-    font-size: 17px !important;
-}
-
-.gradio-container h1 {
-    font-size: 30px !important;
-    font-weight: 700 !important;
-}
-
-/* Ответ кандидата: белым по морской волне.
-   Цвет задаётся и вложенным элементам тоже — Gradio красит текст внутри
-   пузыря своей переменной, и она перебивала цвет самого пузыря. */
-.gradio-container [data-testid="user"],
-.gradio-container [data-testid="user"] *,
-.gradio-container .message.user,
-.gradio-container .message.user * {
-    color: #ffffff !important;
-    -webkit-text-fill-color: #ffffff !important;
-    font-weight: 500 !important;
-}
-
-/* Реплика бота — тёмным по светло-голубому, тоже с вложенными. */
-.gradio-container [data-testid="bot"],
-.gradio-container [data-testid="bot"] *,
-.gradio-container .message.bot,
-.gradio-container .message.bot * {
-    color: #05253f !important;
-    -webkit-text-fill-color: #05253f !important;
-}
-
-/* Ссылки внутри реплик бота должны оставаться видимыми ссылками. */
-.gradio-container [data-testid="bot"] a,
-.gradio-container .message.bot a {
-    color: #0b5e78 !important;
-    -webkit-text-fill-color: #0b5e78 !important;
-    text-decoration: underline;
-}
-
-/* Вкладка рекрутера: обычные кнопки и переключатели Gradio рисует
-   тёмно-серыми, и на белой карточке они выглядели чужеродно. Классы
-   Gradio хешированные, поэтому цепляемся за роль элемента, а не за имя
-   класса — оно меняется от сборки к сборке. */
 .gradio-container button.secondary,
 .gradio-container button.lg.secondary {
     background: #ffffff !important;
-    color: #0b5e78 !important;
-    border: 1px solid #cfe3ef !important;
+    color: #0e7490 !important;
+    border: 1px solid #dbe2e8 !important;
     border-radius: 12px !important;
     font-weight: 600;
 }
 
 .gradio-container button.secondary:hover {
-    background: #eef6fb !important;
+    background: #f2f6f9 !important;
     border-color: #0e7490 !important;
 }
 
 .gradio-container label:has(input[type="radio"]),
 .gradio-container label:has(input[type="checkbox"]) {
     background: #ffffff !important;
-    color: #05253f !important;
-    border: 1px solid #cfe3ef !important;
+    color: #101828 !important;
+    border: 1px solid #dbe2e8 !important;
     border-radius: 999px !important;
 }
 
-/* Выбранный вариант фильтра — морской волной, чтобы было видно сразу. */
 .gradio-container label:has(input[type="radio"]:checked) {
-    background: #e3f2f9 !important;
+    background: #eaf4f8 !important;
     border-color: #0e7490 !important;
     color: #0b5e78 !important;
     font-weight: 600;
@@ -203,107 +241,23 @@ body {
     -webkit-text-fill-color: currentColor !important;
 }
 
-/* Выпадающий список вакансий */
-.gradio-container input[role="listbox"],
-.gradio-container ul[role="listbox"] {
-    background: #ffffff !important;
-    color: #05253f !important;
-    border-color: #cfe3ef !important;
-}
-
-/* Сам кружок переключателя браузер красит системным цветом — задаём свой. */
 .gradio-container input[type="radio"],
 .gradio-container input[type="checkbox"] {
     accent-color: #0e7490;
+}
+
+#rank-picker input[role="listbox"],
+.gradio-container ul[role="listbox"] {
     background: #ffffff !important;
-    border: 1px solid #cfe3ef !important;
-}
-
-/* --- Карточки вакансий -------------------------------------------------- */
-
-.vacancy-cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-    gap: 16px;
-}
-
-.vacancy-card {
-    background: #ffffff;
-    border: 1px solid #d6e8f3;
-    border-radius: 16px;
-    overflow: hidden;
-    box-shadow: 0 6px 18px rgba(6, 41, 68, 0.08);
-    display: flex;
-    flex-direction: column;
-}
-
-/* Высота снимка фиксирована, а сам он обрезается по центру: у фотографий
-   разные пропорции, и без этого карточки в ряду разъезжались бы. */
-.vacancy-card img {
-    width: 100%;
-    height: 132px;
-    object-fit: cover;
-    display: block;
-    background: #e3f2f9;
-}
-
-.vacancy-card .card-body {
-    padding: 12px 14px 14px;
-}
-
-.vacancy-card h4 {
-    margin: 0 0 2px;
-    font-size: 16px;
-    color: #062944 !important;
-}
-
-.vacancy-card .card-vessel {
-    margin: 0 0 8px;
-    color: #2c5570 !important;
-    font-size: 14px;
-}
-
-.vacancy-card .card-salary {
-    margin: 0 0 4px;
-    font-size: 17px;
-    font-weight: 700;
-    color: #0b5e78 !important;
-}
-
-.vacancy-card .card-meta {
-    margin: 0;
-    font-size: 13px;
-    color: #2c5570 !important;
-}
-
-.vacancy-card .card-status {
-    display: inline-block;
-    margin-top: 10px;
-    padding: 2px 10px;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 600;
-}
-
-.vacancy-card .card-status.open {
-    background: #e2f5e9;
-    color: #1b6b3a !important;
-}
-
-.vacancy-card .card-status.closed {
-    background: #eef2f5;
-    color: #5b7285 !important;
-}
-
-.cards-empty {
-    color: #2c5570 !important;
-    margin: 8px 0;
+    color: #101828 !important;
+    border-color: #e3e7ec !important;
+    font-size: 17px !important;
 }
 
 /* --- Календарь интервью -------------------------------------------------- */
 
-/* Открытый день — зелёный. Gradio ставит класс primary сам, поэтому цвет
-   задаётся только внутри сетки календаря и не трогает прочие кнопки. */
+/* Открытый день — зелёный. Класс primary ставит сам Gradio, поэтому цвет
+   задаётся только внутри сетки и прочих кнопок не трогает. */
 #calendar-grid button.primary,
 #calendar-grid .primary button {
     background: #1b8a4b !important;
@@ -314,86 +268,30 @@ body {
 
 #calendar-grid button {
     min-width: 0 !important;
-    border-radius: 10px !important;
+    border-radius: 12px !important;
+    font-size: 17px !important;
 }
 
 /* Пустые клетки в начале и конце месяца: место занимают, глаз не ловят. */
 #calendar-grid button:disabled {
-    opacity: 0.35;
+    opacity: 0.3;
     box-shadow: none !important;
 }
 
-/* --- Карточка вакансии у кандидата -------------------------------------- */
-
-.vacancy-detail {
-    display: flex;
-    gap: 18px;
-    background: #ffffff;
-    border: 1px solid #d6e8f3;
-    border-radius: 18px;
-    overflow: hidden;
-    box-shadow: 0 10px 26px rgba(6, 41, 68, 0.1);
-    margin: 10px 0 4px;
+.cards-empty {
+    color: #5b6675 !important;
+    margin: 8px 0;
 }
 
-.vacancy-detail img {
-    width: 260px;
-    min-height: 200px;
-    object-fit: cover;
-    flex: 0 0 auto;
-    background: #e3f2f9;
+/* Gradio ставит собственный предел ширины на обёртку страницы, и без
+   этого три четверти экрана превращались в узкую колонку. */
+gradio-app,
+.gradio-container > .main {
+    max-width: 100% !important;
+    width: 100% !important;
 }
 
-.vacancy-detail .detail-body {
-    padding: 16px 18px 18px 0;
-}
-
-.vacancy-detail h3 {
-    margin: 0 0 2px;
-    color: #062944 !important;
-}
-
-.vacancy-detail .detail-vessel {
-    margin: 0 0 10px;
-    color: #2c5570 !important;
-}
-
-.vacancy-detail .detail-salary {
-    margin: 0 0 4px;
-    font-size: 20px;
-    font-weight: 700;
-    color: #0b5e78 !important;
-}
-
-.vacancy-detail .detail-meta,
-.vacancy-detail .detail-req {
-    margin: 0 0 8px;
-    color: #05253f !important;
-}
-
-/* Даты интервью — зелёным, тем же, что открытый день в календаре:
-   кандидат и рекрутер смотрят на один и тот же признак. */
-.vacancy-detail .detail-dates {
-    margin: 10px 0 0;
-    padding: 8px 12px;
-    border-radius: 12px;
-    background: #e2f5e9;
-    color: #1b6b3a !important;
-    font-weight: 600;
-}
-
-/* На телефоне снимок встаёт над текстом, иначе на него не остаётся места. */
-@media (max-width: 620px) {
-    .vacancy-detail {
-        flex-direction: column;
-    }
-
-    .vacancy-detail img {
-        width: 100%;
-        min-height: 150px;
-    }
-
-    .vacancy-detail .detail-body {
-        padding: 0 16px 16px;
-    }
+/* Карточек в ряду должно быть три: 320 px на каждую — это две. */
+.vac-card {
+    min-width: 220px !important;
 }

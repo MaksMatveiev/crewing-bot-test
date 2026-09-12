@@ -294,6 +294,20 @@ def list_open_ranks(conn) -> list:
         return [row[0] for row in cur.fetchall()]
 
 
+def list_rank_counts(conn) -> list:
+    """Должности открытых вакансий и сколько их по каждой.
+
+    Кандидат не набирает должность руками: он открывает список и видит
+    сразу, где сколько мест.
+    """
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT rank, COUNT(*) FROM vacancies WHERE is_active"
+            " GROUP BY rank ORDER BY rank"
+        )
+        return [{"rank": row[0], "count": row[1]} for row in cur.fetchall()]
+
+
 def list_open_vessel_types(conn, rank: str) -> list:
     """Типы судов открытых вакансий — только для выбранной должности."""
     with conn, conn.cursor() as cur:
