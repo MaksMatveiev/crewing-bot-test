@@ -133,3 +133,32 @@ body {
     font-size: 30px !important;
     font-weight: 700 !important;
 }
+
+/* Ответ кандидата: белым по морской волне.
+   Цвет задаётся и вложенным элементам тоже — Gradio красит текст внутри
+   пузыря своей переменной, и она перебивала цвет самого пузыря. */
+.gradio-container [data-testid="user"],
+.gradio-container [data-testid="user"] *,
+.gradio-container .message.user,
+.gradio-container .message.user * {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    font-weight: 500 !important;
+}
+
+/* Реплика бота — тёмным по светло-голубому, тоже с вложенными. */
+.gradio-container [data-testid="bot"],
+.gradio-container [data-testid="bot"] *,
+.gradio-container .message.bot,
+.gradio-container .message.bot * {
+    color: #05253f !important;
+    -webkit-text-fill-color: #05253f !important;
+}
+
+/* Ссылки внутри реплик бота должны оставаться видимыми ссылками. */
+.gradio-container [data-testid="bot"] a,
+.gradio-container .message.bot a {
+    color: #0b5e78 !important;
+    -webkit-text-fill-color: #0b5e78 !important;
+    text-decoration: underline;
+}
