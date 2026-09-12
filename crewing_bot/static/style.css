@@ -1859,3 +1859,33 @@ gradio-app,
 #recruiter-bar label:has(input[type="radio"]) span {
     font-size: 17px !important;
 }
+
+/* Подпись «Показывать» стояла по левому краю, а пилюли — по центру;
+   вместе это читалось как перекос. Выравниваем всю секцию. */
+#recruiter-bar .block-label,
+#recruiter-bar > div > label,
+#recruiter-bar [data-testid="block-label"] {
+    width: 100% !important;
+    text-align: center !important;
+}
+
+#recruiter-bar > div {
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+}
+
+/* Подпись фильтра — это span прямо внутри fieldset; выравниваем его,
+   а не обёртки, которые Gradio вокруг него не рисует. */
+#recruiter-bar fieldset > span {
+    display: block !important;
+    width: 100% !important;
+    text-align: center !important;
+}
+
+#recruiter-bar fieldset {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
