@@ -1889,3 +1889,48 @@ gradio-app,
     align-items: center;
     justify-content: center;
 }
+
+/* --- Календарь по высоте содержимого -------------------------------------
+
+   Колонку тянуло на всю высоту страницы, и между сеткой дат и часами
+   зияла пустота в пол-экрана. Теперь высота считается по содержимому, а
+   блоки идут вплотную друг за другом. */
+
+#calendar-side {
+    align-self: flex-start !important;
+    height: fit-content !important;
+    gap: 10px !important;
+}
+
+#calendar-side > * {
+    flex: 0 0 auto !important;
+}
+
+#calendar-grid,
+#hours-grid {
+    flex: 0 0 auto !important;
+    gap: 6px !important;
+}
+
+#calendar-grid .row,
+#hours-grid .row {
+    flex: 0 0 auto !important;
+    min-height: 0 !important;
+    gap: 6px !important;
+}
+
+#calendar-grid button,
+#hours-grid button {
+    min-height: 44px !important;
+    height: auto !important;
+}
+
+/* Строка «Открыть весь день / Снять день» и список заявок — сразу под
+   часами, без провала. */
+#calendar-side .row {
+    margin: 0 !important;
+}
+
+#calendar-side textarea {
+    min-height: 140px !important;
+}
