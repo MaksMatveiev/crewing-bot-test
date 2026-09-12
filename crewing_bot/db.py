@@ -146,6 +146,9 @@ COLUMN_MIGRATIONS = (
     "ALTER TABLE applications ADD COLUMN IF NOT EXISTS telegram_chat_id BIGINT",
     "CREATE UNIQUE INDEX IF NOT EXISTS applications_telegram_token"
     " ON applications (telegram_token)",
+    # Номер объявления в канале: по нему пост правится, а не публикуется
+    # заново при каждом сохранении вакансии.
+    "ALTER TABLE vacancies ADD COLUMN IF NOT EXISTS channel_message_id BIGINT",
 )
 
 # Схема одна на процесс: init_schema вызывается на каждый ход диалога и на
@@ -294,6 +297,15 @@ def list_open_ranks(conn) -> list:
         return [row[0] for row in cur.fetchall()]
 
 
+def set_channel_message(conn, vacancy_id: int, message_id) -> None:
+    """Запомнить номер объявления в канале."""
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE vacancies SET channel_message_id = %s WHERE id = %s",
+            (int(message_id) if message_id else None, vacancy_id),
+        )
+
+
 def list_rank_counts(conn) -> list:
     """Должности открытых вакансий и сколько их по каждой.
 
@@ -322,8 +334,8 @@ def get_vacancy(conn, vacancy_id: int):
     with conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(
             "SELECT id, rank, vessel_type, contract_months, salary_usd,"
-            " requirements, screening_questions, is_active"
-            " FROM vacancies WHERE id = %s",
+            " requirements, screening_questions, is_active,"
+            " channel_message_id FROM vacancies WHERE id = %s",
             (vacancy_id,),
         )
         row = cur.fetchone()

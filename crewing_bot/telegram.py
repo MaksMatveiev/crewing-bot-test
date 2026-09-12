@@ -1,4 +1,4 @@
-"""Отправка карточки заявки кандидату в Telegram.
+"""Telegram: карточка заявки кандидату и объявления в канале.
 
 Telegram-бот не может написать человеку первым: пока кандидат не нажал
 Start, у нас нет его chat_id. Поэтому бот показывает ссылку с кодом
@@ -90,3 +90,104 @@ def send_message(chat_id: int, text: str, *, opener=None) -> bool:
             return 200 <= response.status < 300
     except Exception:
         return False
+
+
+CHANNEL_API = "https://api.telegram.org/bot{token}/{method}"
+
+
+def channel_configured() -> bool:
+    """Настроен ли канал. Без адреса канала публикация просто выключена."""
+    return bool(os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHANNEL"))
+
+
+def build_vacancy_post(vacancy: dict, site_url: str = "") -> str:
+    """Текст объявления для канала.
+
+    Требования и вопросы скрининга сюда не идут: в канале нужен повод
+    открыть сайт, а подробности человек читает в карточке.
+    """
+    lines = [
+        f"⚓ {vacancy['rank']} — {vacancy['vessel_type']}",
+        "",
+        f"💵 ${vacancy['salary_usd']} / мес",
+        f"📆 Контракт {vacancy['contract_months']} мес",
+    ]
+    requirements = (vacancy.get("requirements") or "").strip()
+    if requirements:
+        lines += ["", f"Требования: {requirements}"]
+    if not vacancy.get("is_active", True):
+        lines = ["🚫 Вакансия закрыта", ""] + lines
+    if site_url:
+        lines += ["", f"Записаться на интервью: {site_url}"]
+    return "\n".join(lines)
+
+
+def _call(method: str, payload: dict, *, opener=None):
+    """Вызов Telegram. None при любой неудаче.
+
+    Исключение наружу не летит: публикация в канал — дополнение к работе
+    сайта, и ронять из-за неё сохранение вакансии нельзя.
+    """
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        return None
+    try:
+        request = urllib.request.Request(
+            CHANNEL_API.format(token=token, method=method),
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        send = opener or urllib.request.urlopen
+        with send(request, timeout=15) as response:
+            if not 200 <= response.status < 300:
+                return None
+            answer = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return None
+    return answer.get("result") if answer.get("ok") else None
+
+
+def publish_vacancy(vacancy: dict, photo_url: str = "", site_url: str = "",
+                    *, opener=None):
+    """Опубликовать вакансию в канале. Возвращает номер сообщения или None.
+
+    Со снимком судна, если он доступен по сети: канал листают глазами, и
+    объявление без картинки там теряется.
+    """
+    if not channel_configured():
+        return None
+
+    channel = os.environ["TELEGRAM_CHANNEL"]
+    caption = build_vacancy_post(vacancy, site_url)
+    if photo_url:
+        result = _call("sendPhoto",
+                       {"chat_id": channel, "photo": photo_url,
+                        "caption": caption},
+                       opener=opener)
+        if result:
+            return result.get("message_id")
+    result = _call("sendMessage", {"chat_id": channel, "text": caption},
+                   opener=opener)
+    return result.get("message_id") if result else None
+
+
+def update_vacancy_post(message_id: int, vacancy: dict, site_url: str = "",
+                        *, opener=None) -> bool:
+    """Переписать уже опубликованное объявление.
+
+    Так закрытая вакансия помечается прямо в канале, а не удаляется:
+    ссылку на пост могли сохранить или переслать.
+    """
+    if not channel_configured() or not message_id:
+        return False
+
+    channel = os.environ["TELEGRAM_CHANNEL"]
+    caption = build_vacancy_post(vacancy, site_url)
+    payload = {"chat_id": channel, "message_id": int(message_id),
+               "caption": caption}
+    if _call("editMessageCaption", payload, opener=opener) is not None:
+        return True
+    # Объявление без снимка правится другим методом.
+    payload = {"chat_id": channel, "message_id": int(message_id),
+               "text": caption}
+    return _call("editMessageText", payload, opener=opener) is not None

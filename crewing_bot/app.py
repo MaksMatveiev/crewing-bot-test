@@ -1022,6 +1022,65 @@ def recruiter_save_vacancy(password, vacancy_id, rank, vessel_type,
         conn.close()
 
 
+def site_url() -> str:
+    """Адрес сайта для ссылки в объявлении канала."""
+    return os.getenv("SITE_URL", "").rstrip("/")
+
+
+def vacancy_photo_url(vacancy) -> str:
+    """Снимок судна по сети: в канал нужен адрес, а не путь на диске."""
+    address = site_url()
+    return f"{address}{vessel_photo(vacancy['vessel_type'])}" if address else ""
+
+
+def recruiter_publish(password: str, vacancy_id) -> str:
+    """Опубликовать вакансию в канале или обновить уже опубликованную."""
+    error = _guard(password)
+    if error:
+        return error
+    if not vacancy_id:
+        return "⚠️ Сначала выберите вакансию."
+    if not telegram.channel_configured():
+        return ("⚠️ Канал не настроен: нужны TELEGRAM_BOT_TOKEN и "
+                "TELEGRAM_CHANNEL в настройках сервиса.")
+
+    conn, failure = _open_conn()
+    if failure:
+        return failure
+    try:
+        vacancy = db.get_vacancy(conn, int(vacancy_id))
+        if not vacancy:
+            return "⚠️ Такой вакансии больше нет."
+
+        posted = vacancy.get("channel_message_id")
+        if posted and telegram.update_vacancy_post(posted, vacancy, site_url()):
+            return f"✅ Объявление в канале обновлено (вакансия #{vacancy['id']})."
+
+        message_id = telegram.publish_vacancy(
+            vacancy, vacancy_photo_url(vacancy), site_url())
+        if not message_id:
+            return ("⚠️ Телеграм не принял объявление. Проверьте, что бот — "
+                    "администратор канала и может публиковать.")
+        db.set_channel_message(conn, vacancy["id"], message_id)
+    finally:
+        conn.close()
+    return f"✅ Вакансия #{vacancy['id']} опубликована в канале."
+
+
+def announce_closed(conn, vacancy_id) -> None:
+    """Пометить закрытую вакансию в канале.
+
+    Пост не удаляем: ссылку могли переслать или сохранить, и пустое
+    место объясняет меньше, чем пометка «закрыта».
+    """
+    if not telegram.channel_configured():
+        return
+    vacancy = db.get_vacancy(conn, int(vacancy_id))
+    posted = vacancy.get("channel_message_id") if vacancy else None
+    if posted:
+        telegram.update_vacancy_post(posted, vacancy, site_url())
+
+
 def recruiter_toggle_vacancy(password, vacancy_id, open_it: bool) -> str:
     """Закрыть вакансию или открыть её снова.
 
@@ -1040,6 +1099,8 @@ def recruiter_toggle_vacancy(password, vacancy_id, open_it: bool) -> str:
         return error
     try:
         changed = db.set_vacancy_active(conn, int(vacancy_id), open_it)
+        if changed:
+            announce_closed(conn, vacancy_id)
     finally:
         conn.close()
     if not changed:
@@ -1542,6 +1603,8 @@ def build_ui():
                             with gr.Row():
                                 close_button = gr.Button("Закрыть вакансию")
                                 reopen_button = gr.Button("Открыть снова")
+                            publish_button = gr.Button(
+                                "Опубликовать в канале Telegram")
                             form_message = gr.Markdown(
                                 "", elem_id="vacancy-form-message")
                             gr.HTML(
@@ -1639,6 +1702,12 @@ def build_ui():
                         secret, chosen, False),
                     inputs=[session_password, editing_id], outputs=form_message,
                 ).then(recruiter_browse, inputs=grid_inputs, outputs=grid_outputs)
+
+                publish_button.click(
+                    recruiter_publish,
+                    inputs=[session_password, editing_id],
+                    outputs=form_message,
+                )
 
                 reopen_button.click(
                     lambda secret, chosen: recruiter_toggle_vacancy(

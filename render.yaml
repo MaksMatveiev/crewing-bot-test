@@ -22,3 +22,7 @@ services:
         sync: false
       - key: TELEGRAM_WEBHOOK_SECRET
         sync: false
+      - key: TELEGRAM_CHANNEL
+        sync: false
+      - key: SITE_URL
+        sync: false

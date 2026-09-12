@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 
 from crewing_bot import telegram
@@ -99,3 +100,157 @@ def test_send_message_returns_false_on_unserializable_text(monkeypatch):
     # text — объект, который json.dumps не умеет сериализовать: TypeError
     # должен быть перехвачен внутри send_message, а не улететь наружу.
     assert telegram.send_message(555, object()) is False
+
+
+# --- Объявления в канале ----------------------------------------------------
+
+
+def _vacancy(**changes):
+    vacancy = {
+        "id": 7,
+        "rank": "2nd Engineer",
+        "vessel_type": "bulk carrier",
+        "contract_months": 6,
+        "salary_usd": 6500,
+        "requirements": "Опыт от 12 месяцев",
+        "is_active": True,
+        "channel_message_id": None,
+    }
+    vacancy.update(changes)
+    return vacancy
+
+
+class _Answer:
+    """Ответ Telegram с нужным телом."""
+
+    def __init__(self, body, status=200):
+        self.status = status
+        self._body = json.dumps(body).encode("utf-8")
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def _opener(body, calls=None, status=200):
+    def send(request, timeout=None):
+        if calls is not None:
+            calls.append((request.full_url.rsplit("/", 1)[-1],
+                          json.loads(request.data.decode("utf-8"))))
+        return _Answer(body, status)
+
+    return send
+
+
+def test_channel_needs_both_token_and_address(monkeypatch):
+    """Без адреса канала публикация просто выключена."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.delenv("TELEGRAM_CHANNEL", raising=False)
+    assert telegram.channel_configured() is False
+
+    monkeypatch.setenv("TELEGRAM_CHANNEL", "@jobs")
+    assert telegram.channel_configured() is True
+
+
+def test_post_shows_what_decides_at_a_glance():
+    post = telegram.build_vacancy_post(_vacancy(), "https://example.com")
+
+    assert "2nd Engineer" in post
+    assert "bulk carrier" in post
+    assert "$6500" in post
+    assert "6 мес" in post
+    assert "https://example.com" in post
+
+
+def test_post_keeps_screening_questions_out():
+    """В канале нужен повод открыть сайт, а не вся внутренняя кухня."""
+    post = telegram.build_vacancy_post(
+        dict(_vacancy(), screening_questions=["Секретный вопрос?"]))
+
+    assert "Секретный вопрос" not in post
+
+
+def test_closed_vacancy_is_marked_in_the_post():
+    post = telegram.build_vacancy_post(_vacancy(is_active=False))
+
+    assert post.startswith("🚫 Вакансия закрыта")
+
+
+def test_publishing_sends_photo_and_returns_message_id(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setenv("TELEGRAM_CHANNEL", "@jobs")
+    calls = []
+
+    message_id = telegram.publish_vacancy(
+        _vacancy(), "https://example.com/ship.jpg", "https://example.com",
+        opener=_opener({"ok": True, "result": {"message_id": 42}}, calls))
+
+    assert message_id == 42
+    assert calls[0][0] == "sendPhoto"
+    assert calls[0][1]["chat_id"] == "@jobs"
+    assert calls[0][1]["photo"] == "https://example.com/ship.jpg"
+
+
+def test_publishing_without_photo_falls_back_to_text(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setenv("TELEGRAM_CHANNEL", "@jobs")
+    calls = []
+
+    message_id = telegram.publish_vacancy(
+        _vacancy(), "", "", opener=_opener({"ok": True,
+                                            "result": {"message_id": 7}}, calls))
+
+    assert message_id == 7
+    assert calls[0][0] == "sendMessage"
+
+
+def test_publishing_survives_a_refusal(monkeypatch):
+    """Телеграм отказал — сохранение вакансии от этого падать не должно."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setenv("TELEGRAM_CHANNEL", "@jobs")
+
+    def boom(request, timeout=None):
+        raise OSError("сеть недоступна")
+
+    assert telegram.publish_vacancy(_vacancy(), "", "", opener=boom) is None
+
+
+def test_publishing_without_channel_does_nothing(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.delenv("TELEGRAM_CHANNEL", raising=False)
+
+    def boom(request, timeout=None):
+        raise AssertionError("в канал ходить не должны")
+
+    assert telegram.publish_vacancy(_vacancy(), "", "", opener=boom) is None
+
+
+def test_existing_post_is_edited_not_reposted(monkeypatch):
+    """Закрытую вакансию помечаем в старом посте, а не публикуем заново."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setenv("TELEGRAM_CHANNEL", "@jobs")
+    calls = []
+
+    done = telegram.update_vacancy_post(
+        42, _vacancy(is_active=False), "https://example.com",
+        opener=_opener({"ok": True, "result": {"message_id": 42}}, calls))
+
+    assert done is True
+    assert calls[0][0] == "editMessageCaption"
+    assert calls[0][1]["message_id"] == 42
+    assert "закрыта" in calls[0][1]["caption"]
+
+
+def test_editing_without_message_id_does_nothing(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setenv("TELEGRAM_CHANNEL", "@jobs")
+
+    def boom(request, timeout=None):
+        raise AssertionError("править нечего")
+
+    assert telegram.update_vacancy_post(None, _vacancy(), opener=boom) is False
