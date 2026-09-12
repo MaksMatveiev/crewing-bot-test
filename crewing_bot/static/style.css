@@ -1515,3 +1515,23 @@ gradio-app,
         margin-top: 18px;
     }
 }
+
+/* Рамка у реплики — одна, тонкая, на внешнем пузыре. Вложенные блоки
+   остаются без границ: их рамки и давали рамку в рамке. */
+#assistant-chat .message.bot,
+#assistant-chat [data-testid="bot"] {
+    border: 1px solid #e1e5ea !important;
+}
+
+#assistant-chat .message.user,
+#assistant-chat [data-testid="user"] {
+    border: 1px solid #cfe0e8 !important;
+}
+
+#assistant-chat .message.bot *,
+#assistant-chat .message.user *,
+#assistant-chat p,
+#assistant-chat .message .md,
+#assistant-chat .message-content {
+    border: none !important;
+}
