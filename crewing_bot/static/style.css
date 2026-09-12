@@ -1695,3 +1695,20 @@ gradio-app,
 #hours-grid button {
     display: flex !important;
 }
+
+/* Кнопка «Изменить» стоит по низу карточки на любом экране: у вакансий
+   с длинной должностью заголовок занимает две строки, и без этого
+   кнопки в ряду оказывались на разной высоте. */
+.cards-grid .vac-card {
+    display: flex !important;
+    flex-direction: column !important;
+    height: 100%;
+}
+
+.cards-grid .vac-card .vac-text {
+    flex: 1 1 auto;
+}
+
+.gradio-container .cards-grid .vac-card button {
+    margin-top: auto !important;
+}
