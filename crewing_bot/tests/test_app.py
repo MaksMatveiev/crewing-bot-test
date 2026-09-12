@@ -711,3 +711,50 @@ def test_first_real_message_is_not_wasted_after_opening(bot):
     assert "Отлично" in reply
     assert state["wanted_rank"] == "2nd Engineer"
     assert state["step"] == funnel.CHOOSING_VESSEL_TYPE
+
+
+# --- значки должностей и типов судов ---
+
+@pytest.mark.parametrize("rank, expected", [
+    ("Master", "🧭"),
+    ("Chief Officer", "🧭"),
+    ("2nd Officer", "🧭"),
+    ("Chief Engineer", "⚙️"),
+    ("2nd Engineer", "⚙️"),
+    ("ETO", "💡"),
+    ("Electrician", "💡"),
+    ("AB", "⚓"),
+    ("OS", "⚓"),
+    ("Cook", "🧑\u200d🍳"),
+])
+def test_rank_gets_its_icon(rank, expected):
+    assert app.rank_icon(rank) == expected
+
+
+@pytest.mark.parametrize("vessel, expected", [
+    ("bulk carrier", "🚢"),
+    ("container", "📦"),
+    ("tanker", "🛢️"),
+    ("chemical tanker", "🧪"),
+    ("LNG tanker", "🔥"),
+    ("reefer", "❄️"),
+])
+def test_vessel_gets_its_icon(vessel, expected):
+    assert app.vessel_icon(vessel) == expected
+
+
+def test_unknown_rank_and_vessel_fall_back_to_anchor_and_ship():
+    # Рекрутер волен завести любую должность — значок должен найтись всегда.
+    assert app.rank_icon("Rigger") == "⚓"
+    assert app.vessel_icon("FPSO") == "🚢"
+    assert app.rank_icon("") == "⚓"
+    assert app.vessel_icon(None) == "🚢"
+
+
+def test_vacancy_line_shows_both_icons(bot):
+    line = app.render_vacancies([bot.db.vacancy])
+
+    assert "⚓" in line          # AB
+    assert "📦" in line          # container
+    assert "AB" in line and "container" in line
+    assert "1." in line

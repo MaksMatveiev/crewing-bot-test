@@ -1,0 +1,114 @@
+/* Морское оформление: фотография моря фоном, чат — белой карточкой поверх.
+   Фон отдаётся приложением по адресу /static/sea.jpg (см. build_app).
+   Фотография с Pexels, лицензия разрешает свободное использование. */
+
+/* Gradio выбирает тёмную тему по настройке системы. Внутренности чата
+   при этом остаются тёмными внутри нашей белой карточки. Поэтому
+   палитра задаётся переменными явно — оформление не зависит от того,
+   какая тема стоит у посетителя. */
+:root,
+gradio-app,
+.gradio-container {
+    color-scheme: light;
+    --body-background-fill: transparent;
+    --background-fill-primary: #ffffff;
+    --background-fill-secondary: #f2f8fc;
+    --block-background-fill: #ffffff;
+    --block-label-background-fill: #eef6fb;
+    --input-background-fill: #ffffff;
+    --border-color-primary: #d6e8f3;
+    --border-color-accent: #0e7490;
+    --body-text-color: #0b2a42;
+    --body-text-color-subdued: #4a6b84;
+    --block-title-text-color: #0b3a5e;
+    --block-label-text-color: #0b3a5e;
+    --link-text-color: #0e7490;
+    --color-accent: #0e7490;
+    --color-accent-soft: #e3f2f9;
+    --button-primary-background-fill: #0e7490;
+    --button-primary-text-color: #ffffff;
+}
+
+html,
+body {
+    min-height: 100%;
+    background: #0b3a5e;
+}
+
+/* Фотография моря и лёгкая синяя вуаль поверх неё: без вуали белая
+   карточка теряется на светлых участках снимка. */
+body {
+    background-image:
+        linear-gradient(165deg, rgba(9, 46, 77, 0.55), rgba(6, 30, 52, 0.65)),
+        url("/static/sea.jpg");
+    background-size: cover, cover;
+    background-position: center, center;
+    background-repeat: no-repeat, no-repeat;
+    background-attachment: fixed, fixed;
+}
+
+.gradio-container {
+    max-width: 940px !important;
+    margin: 36px auto !important;
+    padding: 26px 30px 30px !important;
+    background: #ffffff !important;
+    border-radius: 24px;
+    box-shadow: 0 26px 70px rgba(3, 22, 40, 0.5);
+    color: #0b2a42;
+}
+
+.gradio-container h1,
+.gradio-container h2,
+.gradio-container h3 {
+    color: #0b3a5e !important;
+}
+
+/* Вкладки «Кандидат» и «Рекрутер» */
+.gradio-container button[role="tab"] {
+    font-weight: 600;
+    color: #45677f !important;
+}
+
+.gradio-container button[role="tab"][aria-selected="true"] {
+    color: #0e7490 !important;
+    border-bottom: 2px solid #0e7490 !important;
+}
+
+/* Сообщения: бот — светло-голубое облако, кандидат — морская волна */
+.gradio-container [data-testid="bot"],
+.gradio-container .message.bot {
+    background: #eef6fb !important;
+    border: 1px solid #d6e8f3 !important;
+    border-radius: 18px 18px 18px 6px !important;
+    color: #0b2a42 !important;
+}
+
+.gradio-container [data-testid="user"],
+.gradio-container .message.user {
+    background: #0e7490 !important;
+    border: none !important;
+    border-radius: 18px 18px 6px 18px !important;
+    color: #ffffff !important;
+}
+
+/* Поля ввода и кнопки */
+.gradio-container textarea,
+.gradio-container input[type="text"],
+.gradio-container input[type="password"] {
+    border-radius: 14px !important;
+    border: 1px solid #cfe3ef !important;
+    background: #ffffff !important;
+    color: #0b2a42 !important;
+}
+
+.gradio-container button.primary,
+.gradio-container .primary button {
+    background: #0e7490 !important;
+    border: none !important;
+    color: #ffffff !important;
+    border-radius: 12px !important;
+}
+
+.gradio-container footer {
+    opacity: 0.5;
+}
