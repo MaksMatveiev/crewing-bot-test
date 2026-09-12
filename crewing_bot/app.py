@@ -1034,8 +1034,14 @@ def recruiter_save_vacancy(password, vacancy_id, rank, vessel_type,
 
 
 def site_url() -> str:
-    """Адрес сайта для ссылки в объявлении канала."""
-    return os.getenv("SITE_URL", "").rstrip("/")
+    """Адрес сайта: для ссылки в объявлении и для снимка судна.
+
+    Если SITE_URL не задан, берём адрес, который сообщает сам хостинг.
+    Без него Telegram не мог скачать фотографию, и объявления уходили
+    голым текстом.
+    """
+    address = os.getenv("SITE_URL") or os.getenv("RENDER_EXTERNAL_URL") or ""
+    return address.strip().rstrip("/")
 
 
 def vacancy_photo_url(vacancy) -> str:

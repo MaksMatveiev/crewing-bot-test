@@ -110,7 +110,7 @@ def agency_contacts() -> list:
     lines = []
     email = os.getenv("AGENCY_EMAIL", "").strip()
     phones = os.getenv("AGENCY_PHONES", "").strip()
-    site = os.getenv("SITE_URL", "").strip()
+    site = (os.getenv("SITE_URL") or os.getenv("RENDER_EXTERNAL_URL") or "").strip()
     if email:
         lines.append(f"✉️ {email}")
     for phone in (part.strip() for part in phones.split(";")):
@@ -163,7 +163,7 @@ def build_vacancy_post(vacancy: dict, site_url: str = "") -> str:
         lines += [f"• {question}" for question in questions]
 
     contacts = agency_contacts()
-    if site_url and not os.getenv("SITE_URL", "").strip():
+    if site_url and not (os.getenv("SITE_URL") or os.getenv("RENDER_EXTERNAL_URL")):
         contacts.append(f"🌐 {site_url}")
     if contacts:
         lines += [""] + contacts
