@@ -636,10 +636,57 @@ def test_login_rejects_wrong_password(fresh_attempts):
 
 
 def test_login_accepts_right_password(fresh_attempts):
+    """Вместо пароля наружу уходит ключ сессии, а не сам пароль."""
     stored, unlocked, message = app.recruiter_login("s3cret")
-    assert stored == "s3cret"
+
     assert unlocked is True
     assert message == ""
+    assert stored != "s3cret"
+    assert app.session_alive(stored) is True
+
+
+def test_logout_closes_the_session(fresh_attempts):
+    """После «Выйти» ключ перестаёт открывать панель."""
+    stored, _, _ = app.recruiter_login("s3cret")
+
+    app.recruiter_logout(stored)
+
+    assert app.session_alive(stored) is False
+    assert app._guard(stored) is not None
+
+
+def test_session_key_opens_the_panel_without_password(fresh_attempts):
+    """Пароль вводят один раз: дальше работает ключ."""
+    stored, _, _ = app.recruiter_login("s3cret")
+
+    assert app._guard(stored) is None
+
+
+def test_page_reopens_the_panel_for_a_live_key(fresh_attempts):
+    stored, _, _ = app.recruiter_login("s3cret")
+
+    token, login_box, workspace, message, field = app.recruiter_restore(stored)
+
+    assert token == stored
+    assert login_box["visible"] is False
+    assert workspace["visible"] is True
+
+
+def test_page_asks_for_password_without_a_key(fresh_attempts):
+    token, login_box, workspace, message, field = app.recruiter_restore("")
+
+    assert token == ""
+    assert login_box["visible"] is True
+    assert workspace["visible"] is False
+
+
+def test_stale_key_does_not_open_the_panel(fresh_attempts, monkeypatch):
+    """Просроченный ключ равносилен отсутствию входа."""
+    stored, _, _ = app.recruiter_login("s3cret")
+    app._sessions[stored] = 0.0
+
+    assert app.session_alive(stored) is False
+    assert stored not in app._sessions
 
 
 def test_login_without_configured_password_stays_closed(fresh_attempts, monkeypatch):

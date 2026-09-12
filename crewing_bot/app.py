@@ -8,6 +8,7 @@ import hmac
 import logging
 import os
 import re
+import secrets
 import sys
 import time
 from calendar import monthrange
@@ -792,6 +793,37 @@ LOCKOUT_SECONDS = 60
 _password_attempts = {"failures": 0, "locked_until": 0.0}
 
 
+# Вход действует до нажатия «Выйти»: рекрутер вводит пароль один раз, а
+# дальше работает по ключу сессии. Сам ключ живёт в браузере, поэтому
+# обрыв связи с сервисом больше не выбрасывает человека из панели.
+SESSION_HOURS = 12
+_sessions = {}
+
+
+def open_session() -> str:
+    """Выдать ключ сессии после верного пароля."""
+    token = secrets.token_urlsafe(24)
+    _sessions[token] = time.monotonic() + SESSION_HOURS * 3600
+    return token
+
+
+def session_alive(token) -> bool:
+    """Жив ли ключ. Просроченный убираем сразу же."""
+    expires = _sessions.get(str(token or ""))
+    if expires is None:
+        # Проверяем именно на отсутствие: ноль — тоже срок, просто давно
+        # прошедший, и такой ключ нужно убрать, а не молча пропустить.
+        return False
+    if expires <= time.monotonic():
+        _sessions.pop(str(token), None)
+        return False
+    return True
+
+
+def close_session(token) -> None:
+    _sessions.pop(str(token or ""), None)
+
+
 def check_password(entered: str) -> bool:
     """Сравнение пароля постоянным по времени способом.
 
@@ -813,9 +845,16 @@ def _lockout_left() -> int:
 
 
 def _guard(password: str):
-    """Текст ошибки, если доступа нет, иначе None."""
+    """Текст ошибки, если доступа нет, иначе None.
+
+    Принимает и ключ открытой сессии, и сам пароль: после входа в
+    обработчики приходит ключ, а не пароль.
+    """
     if not os.getenv("RECRUITER_PASSWORD"):
         return "⚠️ Не задан RECRUITER_PASSWORD в .env — вкладка закрыта."
+
+    if session_alive(password):
+        return None
 
     waiting = _lockout_left()
     if waiting:
@@ -835,13 +874,22 @@ def _guard(password: str):
     return None
 
 
-def recruiter_logout():
-    """Закрыть рабочее место: пароль забываем, форма входа возвращается.
+def recruiter_logout(token=""):
+    """Закрыть рабочее место: ключ сессии гасим, форма входа возвращается."""
+    close_session(token)
+    return "", gr.update(visible=True), gr.update(visible=False), "", ""
 
-    Этой же функцией страница приводится в порядок при открытии. Gradio
-    при обрыве связи восстанавливает блоки как попало, и на экране
-    оказывались сразу и форма входа, и вакансии.
+
+def recruiter_restore(token=""):
+    """Что показать на вкладке рекрутера при открытии страницы.
+
+    Живой ключ означает, что человек уже входил и не нажимал «Выйти», —
+    открываем рабочее место сразу. Иначе показываем форму входа: Gradio
+    при обрыве связи восстанавливает блоки как попало, и без этого на
+    экране оказывались сразу и вход, и вакансии.
     """
+    if session_alive(token):
+        return token, gr.update(visible=False), gr.update(visible=True), "", ""
     return "", gr.update(visible=True), gr.update(visible=False), "", ""
 
 
@@ -857,7 +905,7 @@ def recruiter_login(entered: str):
     error = _guard(entered)
     if error:
         return "", False, error
-    return entered, True, ""
+    return open_session(), True, ""
 
 
 NEW_VACANCY_LABEL = "— новая вакансия —"
@@ -1438,7 +1486,10 @@ def build_ui():
             # Скрытие блоков — только внешний вид: обработчики на сервере
             # проверяют пароль сами, иначе защиту обошли бы запросом мимо
             # интерфейса.
-            session_password = gr.State("")
+            # Ключ сессии живёт в браузере: обрыв связи с сервисом не
+            # должен выбрасывать рекрутера из панели на полпути.
+            session_password = gr.BrowserState(
+                "", storage_key="crewing_recruiter_session")
             editing_id = gr.State(0)
             # Рекрутерская сетка держит свои номера вакансий отдельно от
             # кандидатской: обе вкладки открыты в одном браузере разом.
@@ -1465,7 +1516,8 @@ def build_ui():
                                 list(STATUS_FILTERS), value="все",
                                 label="Показывать", scale=2)
                             logout_button = gr.Button("Выйти", scale=1)
-                        recruiter_message = gr.Markdown("")
+                        recruiter_message = gr.Markdown(
+                            "", elem_id="recruiter-message")
 
                         with gr.Group(visible=False) as vacancy_form:
                             form_title = gr.Markdown("### Новая вакансия")
@@ -1490,7 +1542,8 @@ def build_ui():
                             with gr.Row():
                                 close_button = gr.Button("Закрыть вакансию")
                                 reopen_button = gr.Button("Открыть снова")
-                            form_message = gr.Markdown("")
+                            form_message = gr.Markdown(
+                                "", elem_id="vacancy-form-message")
                             gr.HTML(
                                 "<p class='form-note'>Удаления нет —"
                                 " на вакансию ссылаются заявки кандидатов.<br>"
@@ -1640,6 +1693,7 @@ def build_ui():
 
             logout_button.click(
                 recruiter_logout,
+                inputs=session_password,
                 outputs=[session_password, login_box, workspace,
                          login_message, password],
             )
@@ -1673,7 +1727,8 @@ def build_ui():
         # При открытии страницы вкладка рекрутера всегда закрыта: после
         # обрыва связи Gradio показывал сразу и форму входа, и вакансии.
         demo.load(
-            recruiter_logout,
+            recruiter_restore,
+            inputs=session_password,
             outputs=[session_password, login_box, workspace,
                      login_message, password],
         ).then(candidate_ranks, outputs=rank_picker).then(
