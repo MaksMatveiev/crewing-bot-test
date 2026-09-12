@@ -95,10 +95,6 @@ body {
     color: #5b6675 !important;
 }
 
-.gradio-container button[role="tab"][aria-selected="true"] {
-    color: #0e7490 !important;
-    border-bottom: 2px solid #0e7490 !important;
-}
 
 /* Служебная подпись Gradio внизу страницы человеку не нужна. */
 .gradio-container footer {
@@ -1079,4 +1075,20 @@ gradio-app,
 
 .gradio-container button.secondary {
     min-height: 56px !important;
+}
+
+/* Вкладки в шапке выделяются заливкой, а не чертой под словом —
+   подчёркивания снимаем, в том числе то, что рисует сам Gradio. */
+.gradio-container [role="tablist"] button[role="tab"],
+.gradio-container [role="tablist"] button[role="tab"][aria-selected="true"],
+.gradio-container [role="tablist"] button[role="tab"]:hover,
+.gradio-container [role="tablist"] button[role="tab"] * {
+    text-decoration: none !important;
+    border-bottom: none !important;
+    box-shadow: none !important;
+}
+
+.gradio-container [role="tablist"] button[role="tab"]::after,
+.gradio-container [role="tablist"] button[role="tab"]::before {
+    display: none !important;
 }
