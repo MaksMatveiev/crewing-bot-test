@@ -835,6 +835,16 @@ def _guard(password: str):
     return None
 
 
+def recruiter_logout():
+    """Закрыть рабочее место: пароль забываем, форма входа возвращается.
+
+    Этой же функцией страница приводится в порядок при открытии. Gradio
+    при обрыве связи восстанавливает блоки как попало, и на экране
+    оказывались сразу и форма входа, и вакансии.
+    """
+    return "", gr.update(visible=True), gr.update(visible=False), "", ""
+
+
 def recruiter_login(entered: str):
     """Проверить пароль на входе во вкладку рекрутера.
 
@@ -1454,6 +1464,7 @@ def build_ui():
                             status = gr.Radio(
                                 list(STATUS_FILTERS), value="все",
                                 label="Показывать", scale=2)
+                            logout_button = gr.Button("Выйти", scale=1)
                         recruiter_message = gr.Markdown("")
 
                         with gr.Group(visible=False) as vacancy_form:
@@ -1627,6 +1638,12 @@ def build_ui():
                             + calendar_outputs,
                 )
 
+            logout_button.click(
+                recruiter_logout,
+                outputs=[session_password, login_box, workspace,
+                         login_message, password],
+            )
+
             def _login(entered):
                 stored, unlocked, message = recruiter_login(entered)
                 # Поле пароля очищаем в любом случае: на общем экране
@@ -1653,7 +1670,13 @@ def build_ui():
             )
 
         # Список должностей и вакансии кандидат видит сразу при открытии.
-        demo.load(candidate_ranks, outputs=rank_picker).then(
+        # При открытии страницы вкладка рекрутера всегда закрыта: после
+        # обрыва связи Gradio показывал сразу и форму входа, и вакансии.
+        demo.load(
+            recruiter_logout,
+            outputs=[session_password, login_box, workspace,
+                     login_message, password],
+        ).then(candidate_ranks, outputs=rank_picker).then(
             candidate_browse, inputs=rank_picker, outputs=browse_outputs)
 
     return demo
