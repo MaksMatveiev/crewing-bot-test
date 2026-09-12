@@ -6,7 +6,7 @@
 """
 
 import types
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -487,18 +487,6 @@ def test_correct_password_resets_counter(fresh_attempts):
     assert app._password_attempts["failures"] == 0
 
 
-# --- слоты рекрутера (I10) --------------------------------------------------
-
-def test_recruiter_open_slots_refuses_zero_step(bot, fresh_attempts):
-    result = app.recruiter_open_slots("s3cret", "2026-10-01", "10:00", "17:00", 0)
-    assert result.startswith("⚠️")
-
-
-def test_recruiter_open_slots_refuses_non_number_step(bot, fresh_attempts):
-    result = app.recruiter_open_slots("s3cret", "2026-10-01", "10:00", "17:00", None)
-    assert result.startswith("⚠️")
-
-
 # --- инициализация схемы не должна ронять интерфейс -------------------------
 
 def _break_schema_init(fake_db):
@@ -528,9 +516,9 @@ def test_broken_schema_init_does_not_crash_recruiter_tab(bot, fresh_attempts):
         "s3cret", 0, "AB", "container", 6, 1800, "", ""
     ) == app.DB_SETUP_FAILED_TEXT
     assert app.recruiter_toggle_vacancy("s3cret", 5, False) == app.DB_SETUP_FAILED_TEXT
-    assert app.recruiter_open_slots(
-        "s3cret", "2026-10-01", "10:00", "11:00", 30
-    ) == app.DB_SETUP_FAILED_TEXT
+
+    title, message = app.recruiter_calendar("s3cret", 2026, 10)[:2]
+    assert message == app.DB_SETUP_FAILED_TEXT
 
 
 # --- вебхук Telegram ---------------------------------------------------------
@@ -778,22 +766,61 @@ def _row(vacancy_id, rank="2nd Engineer", vessel="bulk carrier", active=True):
     }
 
 
-def test_vacancy_list_shows_status_in_words():
-    """Статус подписан словом: значок один, а смотрят с телефона на солнце."""
-    text = app.format_vacancy_table([_row(1), _row(2, active=False)])
+def test_vacancy_card_shows_status_in_words():
+    """Статус подписан словом: смотрят с телефона, часто на солнце."""
+    html = app.vacancy_cards_html([_row(1), _row(2, active=False)])
 
-    assert "открыта" in text
-    assert "закрыта" in text
-    assert "#1" in text and "#2" in text
+    assert "открыта" in html
+    assert "закрыта" in html
+    assert "№1" in html and "№2" in html
 
 
-def test_vacancy_list_counts_screening_questions():
-    text = app.format_vacancy_table([_row(1)])
-    assert "вопросов скрининга: 2" in text
+def test_candidate_cards_have_no_status_mark():
+    """Кандидату показывают только открытые — подпись была бы лишней."""
+    html = app.vacancy_cards_html([_row(1)], show_status=False)
+
+    assert "card-status" not in html
+    assert "2nd Engineer" in html
+
+
+def test_card_shows_salary_and_contract():
+    html = app.vacancy_cards_html([_row(1)])
+
+    assert "$6500" in html
+    assert "контракт 6 мес" in html
 
 
 def test_empty_vacancy_list_says_so():
-    assert app.format_vacancy_table([]) == "Ничего не найдено."
+    assert "Ничего не найдено" in app.vacancy_cards_html([])
+
+
+def test_each_vessel_type_gets_its_own_photo():
+    """Газовоз и химовоз не должны получить снимок обычного танкера."""
+    assert app.vessel_photo("LNG tanker").endswith("lng-tanker.jpg")
+    assert app.vessel_photo("chemical tanker").endswith("chemical-tanker.jpg")
+    assert app.vessel_photo("tanker").endswith("tanker.jpg")
+    assert app.vessel_photo("bulk carrier").endswith("bulk-carrier.jpg")
+    assert app.vessel_photo("container").endswith("container.jpg")
+
+
+def test_unknown_vessel_type_still_gets_a_photo():
+    assert app.vessel_photo("hovercraft").endswith("default.jpg")
+    assert app.vessel_photo(None).endswith("default.jpg")
+
+
+def test_photo_files_exist():
+    """Путь в разметке должен вести к настоящему файлу, а не в пустоту."""
+    for _, filename in app.VESSEL_PHOTOS:
+        assert (app.STATIC_DIR / "vessels" / filename).exists()
+    assert (app.STATIC_DIR / "vessels" / "default.jpg").exists()
+
+
+def test_card_escapes_text_from_the_base():
+    """Название заводит человек — разметку страницы оно ломать не должно."""
+    html = app.vacancy_cards_html([_row(1, rank="<script>alert(1)</script>")])
+
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html
 
 
 def test_picker_starts_with_new_vacancy():
@@ -957,3 +984,172 @@ def test_chosen_vacancy_fills_the_form(monkeypatch):
     assert vessel == "bulk carrier"
     assert (months, salary) == (6, 6500)
     assert questions == "STCW?\nВиза?"
+
+
+# --- Календарь интервью -----------------------------------------------------
+
+
+def test_month_grid_starts_on_monday():
+    """1 сентября 2026 — вторник, значит первая клетка пустая."""
+    cells = app.month_cells(2026, 9)
+
+    assert cells[0] is None
+    assert cells[1] == 1
+    assert cells[30] == 30
+    assert len(cells) == app.CALENDAR_CELLS
+
+
+def test_month_grid_holds_any_month():
+    for year, month in ((2026, 2), (2026, 8), (2024, 2), (2026, 11)):
+        cells = app.month_cells(year, month)
+        numbers = [cell for cell in cells if cell is not None]
+        assert numbers == list(range(1, len(numbers) + 1))
+        assert len(cells) == app.CALENDAR_CELLS
+
+
+def test_month_shift_crosses_the_year():
+    assert app.shift_month(2026, 12, 1) == (2027, 1)
+    assert app.shift_month(2026, 1, -1) == (2025, 12)
+    assert app.shift_month(2026, 9, 2) == (2026, 11)
+
+
+def test_month_title_is_readable():
+    assert app.month_title(2026, 9) == "Сентябрь 2026"
+
+
+def test_calendar_refuses_wrong_password(monkeypatch):
+    _unlocked(monkeypatch)
+    monkeypatch.setattr(app, "_open_conn", lambda: (_ for _ in ()).throw(AssertionError))
+
+    title, message = app.recruiter_calendar("не тот", 2026, 9)[:2]
+
+    assert title == "Сентябрь 2026"
+    assert "Неверный пароль" in message
+
+
+def _calendar_db(monkeypatch, days=None, opened=None, closed=None):
+    """Заглушка базы для календаря: помнит, что у неё просили.
+
+    Списки берутся как есть, без `or []`: пустой список ложен, и такая
+    замена подсунула бы новый — вызовы уходили бы в никуда, а тест
+    продолжал бы выглядеть зелёным.
+    """
+    days = {} if days is None else days
+    opened = [] if opened is None else opened
+    closed = [] if closed is None else closed
+
+    def open_slots(conn, day, start, end, step):
+        opened.append((day, start, end, step))
+        return 12
+
+    def close_free_day(conn, day):
+        closed.append(day)
+        return 12, 0
+
+    monkeypatch.setattr(app, "_open_conn", lambda: (FakeConn(), None))
+    monkeypatch.setattr(app.db, "list_slot_days",
+                        lambda conn, first, last: dict(days))
+    monkeypatch.setattr(app.db, "open_slots", open_slots)
+    monkeypatch.setattr(app.db, "close_free_day", close_free_day)
+
+
+def test_open_day_is_green(monkeypatch):
+    password = _unlocked(monkeypatch)
+    _calendar_db(monkeypatch, days={date(2026, 9, 10): {"free": 12, "booked": 0}})
+
+    answer = app.recruiter_calendar(password, 2026, 9)
+    buttons = answer[2:]
+    tenth = buttons[app.month_cells(2026, 9).index(10)]
+
+    assert tenth["variant"] == "primary"
+
+
+def test_untouched_day_is_not_green(monkeypatch):
+    password = _unlocked(monkeypatch)
+    _calendar_db(monkeypatch)
+
+    buttons = app.recruiter_calendar(password, 2026, 9)[2:]
+    tenth = buttons[app.month_cells(2026, 9).index(10)]
+
+    assert tenth["variant"] == "secondary"
+
+
+def test_click_opens_the_whole_working_day(monkeypatch):
+    """День открывается целиком — рекрутер не набирает время руками."""
+    password = _unlocked(monkeypatch)
+    opened = []
+    _calendar_db(monkeypatch, opened=opened)
+
+    answer = app.recruiter_toggle_day(password, 2026, 12, 10)
+
+    assert opened == [(date(2026, 12, 10), "08:00", "14:00", 30)]
+    assert "08:00–14:00" in answer[1]
+
+
+def test_second_click_removes_free_slots(monkeypatch):
+    password = _unlocked(monkeypatch)
+    closed = []
+    _calendar_db(monkeypatch,
+                 days={date(2026, 12, 10): {"free": 12, "booked": 0}},
+                 closed=closed)
+
+    answer = app.recruiter_toggle_day(password, 2026, 12, 10)
+
+    assert closed == [date(2026, 12, 10)]
+    assert "закрыт" in answer[1]
+
+
+def test_booked_day_keeps_its_appointments(monkeypatch):
+    """Занятый слот не снимается: за ним человек, которому назвали время."""
+    password = _unlocked(monkeypatch)
+    monkeypatch.setattr(app, "_open_conn", lambda: (FakeConn(), None))
+    monkeypatch.setattr(app.db, "list_slot_days",
+                        lambda conn, first, last: {date(2026, 12, 10): {"free": 3, "booked": 2}})
+    monkeypatch.setattr(app.db, "close_free_day", lambda conn, day: (3, 2))
+    monkeypatch.setattr(app.db, "open_slots",
+                        lambda *args: (_ for _ in ()).throw(AssertionError))
+
+    answer = app.recruiter_toggle_day(password, 2026, 12, 10)
+
+    assert "2 уже заняты" in answer[1]
+
+
+def test_past_day_cannot_be_opened(monkeypatch):
+    password = _unlocked(monkeypatch)
+    monkeypatch.setattr(app, "_open_conn", lambda: (FakeConn(), None))
+    monkeypatch.setattr(app.db, "list_slot_days", lambda conn, first, last: {})
+    monkeypatch.setattr(app.db, "open_slots",
+                        lambda *args: (_ for _ in ()).throw(AssertionError))
+
+    answer = app.recruiter_toggle_day(password, 2020, 1, 15)
+
+    assert "Прошедший день" in answer[1]
+
+
+def test_past_days_are_not_clickable(monkeypatch):
+    password = _unlocked(monkeypatch)
+    _calendar_db(monkeypatch)
+
+    buttons = app.recruiter_calendar(password, 2020, 1)[2:]
+    fifteenth = buttons[app.month_cells(2020, 1).index(15)]
+
+    assert fifteenth["interactive"] is False
+
+
+def test_empty_cells_are_not_clickable(monkeypatch):
+    password = _unlocked(monkeypatch)
+    _calendar_db(monkeypatch)
+
+    buttons = app.recruiter_calendar(password, 2026, 9)[2:]
+
+    assert buttons[0]["value"] == ""
+    assert buttons[0]["interactive"] is False
+
+
+def test_click_on_empty_cell_changes_nothing(monkeypatch):
+    password = _unlocked(monkeypatch)
+    _calendar_db(monkeypatch)
+
+    answer = app._day_click(0)(password, 2026, 9)
+
+    assert answer[0] == "Сентябрь 2026"

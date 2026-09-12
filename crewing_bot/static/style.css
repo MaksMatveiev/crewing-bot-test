@@ -218,3 +218,107 @@ body {
     background: #ffffff !important;
     border: 1px solid #cfe3ef !important;
 }
+
+/* --- Карточки вакансий -------------------------------------------------- */
+
+.vacancy-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 16px;
+}
+
+.vacancy-card {
+    background: #ffffff;
+    border: 1px solid #d6e8f3;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 6px 18px rgba(6, 41, 68, 0.08);
+    display: flex;
+    flex-direction: column;
+}
+
+/* Высота снимка фиксирована, а сам он обрезается по центру: у фотографий
+   разные пропорции, и без этого карточки в ряду разъезжались бы. */
+.vacancy-card img {
+    width: 100%;
+    height: 132px;
+    object-fit: cover;
+    display: block;
+    background: #e3f2f9;
+}
+
+.vacancy-card .card-body {
+    padding: 12px 14px 14px;
+}
+
+.vacancy-card h4 {
+    margin: 0 0 2px;
+    font-size: 16px;
+    color: #062944 !important;
+}
+
+.vacancy-card .card-vessel {
+    margin: 0 0 8px;
+    color: #2c5570 !important;
+    font-size: 14px;
+}
+
+.vacancy-card .card-salary {
+    margin: 0 0 4px;
+    font-size: 17px;
+    font-weight: 700;
+    color: #0b5e78 !important;
+}
+
+.vacancy-card .card-meta {
+    margin: 0;
+    font-size: 13px;
+    color: #2c5570 !important;
+}
+
+.vacancy-card .card-status {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.vacancy-card .card-status.open {
+    background: #e2f5e9;
+    color: #1b6b3a !important;
+}
+
+.vacancy-card .card-status.closed {
+    background: #eef2f5;
+    color: #5b7285 !important;
+}
+
+.cards-empty {
+    color: #2c5570 !important;
+    margin: 8px 0;
+}
+
+/* --- Календарь интервью -------------------------------------------------- */
+
+/* Открытый день — зелёный. Gradio ставит класс primary сам, поэтому цвет
+   задаётся только внутри сетки календаря и не трогает прочие кнопки. */
+#calendar-grid button.primary,
+#calendar-grid .primary button {
+    background: #1b8a4b !important;
+    border: none !important;
+    color: #ffffff !important;
+    font-weight: 700;
+}
+
+#calendar-grid button {
+    min-width: 0 !important;
+    border-radius: 10px !important;
+}
+
+/* Пустые клетки в начале и конце месяца: место занимают, глаз не ловят. */
+#calendar-grid button:disabled {
+    opacity: 0.35;
+    box-shadow: none !important;
+}

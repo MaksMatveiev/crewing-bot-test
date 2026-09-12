@@ -345,12 +345,18 @@ def open_slots(conn, day: date, start_hhmm: str, end_hhmm: str, step_min: int = 
             )
 
     with conn, conn.cursor() as cur:
+        created = 0
         for moment in moments:
+            # Слот на это время мог быть открыт раньше: в календаре по дню
+            # кликают повторно, и дубли слотов там появлялись бы сами собой.
             cur.execute(
-                "INSERT INTO slots (starts_at, duration_min) VALUES (%s, %s)",
-                (moment, step_min),
+                "INSERT INTO slots (starts_at, duration_min)"
+                " SELECT %s, %s WHERE NOT EXISTS ("
+                "   SELECT 1 FROM slots WHERE starts_at = %s)",
+                (moment, step_min, moment),
             )
-    return len(moments)
+            created += cur.rowcount
+    return created
 
 
 def list_open_slots(conn, limit: int = 10) -> list:
@@ -363,6 +369,45 @@ def list_open_slots(conn, limit: int = 10) -> list:
             (limit,),
         )
         return [dict(row) for row in cur.fetchall()]
+
+
+def list_slot_days(conn, first_day: date, last_day: date) -> dict:
+    """Сколько слотов открыто и занято в каждый день промежутка.
+
+    Календарю нужно знать про день целиком, а не про каждый слот:
+    зелёным он красит день, у которого слоты есть.
+    """
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT starts_at::date AS day,"
+            " COUNT(*) FILTER (WHERE status = 'open') AS free,"
+            " COUNT(*) FILTER (WHERE status = 'booked') AS booked"
+            " FROM slots WHERE starts_at::date BETWEEN %s AND %s"
+            " GROUP BY day",
+            (first_day, last_day),
+        )
+        return {row[0]: {"free": row[1], "booked": row[2]} for row in cur.fetchall()}
+
+
+def close_free_day(conn, day: date) -> tuple:
+    """Убрать свободные слоты дня. Возвращает (убрано, осталось занятых).
+
+    Занятые слоты не трогаем никогда: за каждым стоит заявка живого
+    человека, которому уже назвали время. Поэтому день с бронями
+    закрывается только частично, и рекрутер об этом узнаёт из ответа.
+    """
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM slots WHERE starts_at::date = %s AND status = 'open'",
+            (day,),
+        )
+        removed = cur.rowcount
+        cur.execute(
+            "SELECT COUNT(*) FROM slots"
+            " WHERE starts_at::date = %s AND status <> 'open'",
+            (day,),
+        )
+        return removed, cur.fetchone()[0]
 
 
 def book_slot(conn, slot_id: int) -> bool:
