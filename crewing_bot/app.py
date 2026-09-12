@@ -1132,6 +1132,35 @@ def start_daily_publication(interval_seconds: int = 300) -> None:
     threading.Thread(target=loop, daemon=True, name="channel-digest").start()
 
 
+def recruiter_publish_now(password: str) -> str:
+    """Выложить открытые вакансии в канал прямо сейчас.
+
+    Обычно это делает часовой раз в сутки; кнопка нужна, чтобы проверить
+    настройку канала и не ждать до утра.
+    """
+    error = _guard(password)
+    if error:
+        return error
+    if not telegram.channel_configured():
+        return ("⚠️ Канал не настроен: нужны TELEGRAM_BOT_TOKEN и "
+                "TELEGRAM_CHANNEL в настройках сервиса.")
+
+    conn, failure = _open_conn()
+    if failure:
+        return failure
+    try:
+        posted = publish_open_vacancies(conn)
+    except Exception:
+        logger.exception("Ручная публикация в канал не удалась")
+        return "⚠️ Телеграм не принял объявления — проверьте права бота в канале."
+    finally:
+        conn.close()
+
+    if not posted:
+        return "Открытых вакансий нет — публиковать нечего."
+    return f"✅ Отправлено объявлений в канал: {posted}."
+
+
 def announce_closed(conn, vacancy_id) -> None:
     """Пометить закрытую вакансию в канале.
 
@@ -1641,6 +1670,8 @@ def build_ui():
                             status = gr.Radio(
                                 list(STATUS_FILTERS), value="все",
                                 label="Показывать", scale=2)
+                            publish_now_button = gr.Button(
+                                "В канал сейчас", scale=1)
                             logout_button = gr.Button("Выйти", scale=1)
                         recruiter_message = gr.Markdown(
                             "", elem_id="recruiter-message")
@@ -1830,6 +1861,12 @@ def build_ui():
                             + calendar_outputs,
                 )
 
+            publish_now_button.click(
+                recruiter_publish_now,
+                inputs=session_password,
+                outputs=recruiter_message,
+            )
+
             logout_button.click(
                 recruiter_logout,
                 inputs=session_password,
@@ -1940,6 +1977,21 @@ def build_app():
 
     # Ежедневная выкладка вакансий в канал.
     start_daily_publication()
+
+    @api.get("/channel/publish")
+    async def channel_publish(request: Request):
+        """Запустить выкладку в канал снаружи.
+
+        Бесплатный хостинг засыпает, и разбудить его ровно в восемь утра
+        некому. Внешний будильник дёргает этот адрес — и публикация
+        случается в назначенную минуту, а не при первом посетителе.
+        """
+        secret = os.getenv("TELEGRAM_WEBHOOK_SECRET")
+        given = request.query_params.get("secret", "")
+        if not secret or not hmac.compare_digest(
+                str(given).encode("utf-8"), str(secret).encode("utf-8")):
+            return Response(status_code=403)
+        return {"posted": run_daily_publication()}
 
     @api.post("/telegram/webhook")
     async def telegram_webhook(request: Request):
