@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlsplit
 import psycopg2
 from datetime import date, timedelta
 
@@ -9,41 +10,38 @@ from crewing_bot import db
 # Только TEST_DATABASE_URL и никакого отката на DATABASE_URL: фикстура ниже
 # делает TRUNCATE, и отката хватило бы, чтобы команда из README вычистила
 # рабочую базу вместе с настоящими заявками кандидатов.
-TEST_DB_URL = os.getenv("TEST_DATABASE_URL")
-MAIN_DB_URL = os.getenv("DATABASE_URL")
+def _same_database(first, second) -> bool:
+    """Ведут ли две строки подключения в одну и ту же базу.
 
-
-def _same_database() -> bool:
-    """Указывают ли обе переменные на одну и ту же базу.
-
-    Проверять имя переменной мало: строку подключения легко скопировать
-    из DATABASE_URL по невнимательности, и тогда TRUNCATE в фикстуре
-    честно вычистит рабочую базу. Сравниваем без краевых пробелов —
-    строка, отличающаяся только ими, ведёт ровно туда же.
+    Сравнивать их как текст недостаточно: строки могут отличаться
+    параметрами вроде ?application_name=... и при этом указывать на одно
+    место. Именно так рабочая база однажды и была вычищена прогоном
+    тестов — защита сравнивала текст и пропустила.
     """
-    if not TEST_DB_URL or not MAIN_DB_URL:
-        return False
-    return TEST_DB_URL.strip() == MAIN_DB_URL.strip()
+    def key(url):
+        parts = urlsplit(url or "")
+        return (parts.hostname, parts.port, parts.path, parts.username)
+
+    return bool(first) and bool(second) and key(first) == key(second)
 
 
-pytestmark = [
-    pytest.mark.skipif(
-        not TEST_DB_URL,
-        reason=(
-            "не задан TEST_DATABASE_URL. Нужна ОТДЕЛЬНАЯ тестовая база: прогон "
-            "делает TRUNCATE таблиц, поэтому рабочую базу из DATABASE_URL "
-            "использовать нельзя"
-        ),
-    ),
-    pytest.mark.skipif(
-        _same_database(),
-        reason=(
-            "TEST_DATABASE_URL совпадает с DATABASE_URL — это одна и та же "
-            "база, а прогон делает TRUNCATE и стёр бы рабочие данные вместе "
-            "с настоящими заявками кандидатов"
-        ),
-    ),
-]
+TEST_DB_URL = os.getenv("TEST_DATABASE_URL")
+_LIVE_DB_URL = os.getenv("DATABASE_URL")
+
+if _same_database(TEST_DB_URL, _LIVE_DB_URL):
+    # Молча пропустить нельзя: человек думает, что тесты идут, а они бы
+    # стёрли рабочие данные.
+    TEST_DB_URL = None
+    _SKIP_REASON = (
+        "TEST_DATABASE_URL ведёт в ту же базу, что и DATABASE_URL. "
+        "Прогон стёр бы рабочие данные: нужна отдельная база."
+    )
+else:
+    _SKIP_REASON = (
+        "нужен TEST_DATABASE_URL — отдельная база: прогон делает TRUNCATE"
+    )
+
+pytestmark = pytest.mark.skipif(not TEST_DB_URL, reason=_SKIP_REASON)
 
 
 @pytest.fixture
@@ -476,3 +474,28 @@ def test_inactive_vacancy_is_not_offered(conn):
     with conn, conn.cursor() as cur:
         cur.execute("UPDATE vacancies SET is_active = FALSE WHERE rank = %s", ("AB",))
     assert db.list_open_ranks(conn) == ["2nd Engineer"]
+
+
+def test_guard_spots_same_database_behind_different_text():
+    """Защита обязана видеть одну базу за разными строками.
+
+    Параметр в конце строки её не меняет — именно на этом рабочая база
+    однажды и была вычищена.
+    """
+    base = "postgresql://user:pass@db.example.com:5432/postgres"
+    assert _same_database(base, base + "?application_name=tests") is True
+    assert _same_database(base, base + "?sslmode=require") is True
+
+
+def test_guard_lets_through_a_different_database():
+    first = "postgresql://user:pass@db.example.com:5432/postgres"
+    second = "postgresql://user:pass@test.example.com:5432/postgres"
+    third = "postgresql://user:pass@db.example.com:5432/other"
+
+    assert _same_database(first, second) is False
+    assert _same_database(first, third) is False
+
+
+def test_guard_treats_missing_value_as_different():
+    assert _same_database(None, "postgresql://u:p@h:5432/d") is False
+    assert _same_database("", "") is False
