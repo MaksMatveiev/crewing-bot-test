@@ -650,6 +650,15 @@ def candidate_start(vacancy_id: int, state_dict: dict):
     return history, state, gr.update(visible=True)
 
 
+def candidate_close_assistant():
+    """Закрыть помощника и вернуться к вакансиям.
+
+    Разговор при этом сбрасывается: человек ушёл выбирать другую
+    вакансию, и прежняя анкета к ней уже не относится.
+    """
+    return gr.update(visible=False), {}, []
+
+
 def candidate_reply(message: str, history, state_dict: dict):
     """Ответ кандидата помощнику.
 
@@ -1382,6 +1391,8 @@ def build_ui():
                 # и карточки оставались бы зажатыми.
                 with gr.Column(scale=1, elem_id="assistant-side",
                                visible=False) as assistant:
+                    back_button = gr.Button("← Ко всем вакансиям",
+                                            elem_id="assistant-back")
                     gr.HTML(
                         "<div class='assist-head'>"
                         "<span class='assist-spark'>&#10022;</span>"
@@ -1409,6 +1420,8 @@ def build_ui():
 
             answer.submit(candidate_reply, inputs=[answer, chat, state],
                           outputs=[answer, chat, state])
+            back_button.click(candidate_close_assistant,
+                              outputs=[assistant, state, chat])
 
         with gr.Tab("Рекрутер"):
             # Пароль живёт в состоянии вкладки и подставляется в каждый вызов.

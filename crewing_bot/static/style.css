@@ -1247,3 +1247,197 @@ gradio-app,
     height: auto !important;
     overflow: visible !important;
 }
+
+/* --- Помощник: кнопка возврата и мелкий шрифт ---------------------------- */
+
+#assistant-back {
+    width: auto !important;
+    min-height: 44px !important;
+    padding: 8px 16px !important;
+    font-size: 16px !important;
+    background: #f3f5f2 !important;
+    color: #2f6b45 !important;
+    border: 1px solid #e6e9e4 !important;
+    margin-bottom: 6px;
+}
+
+#assistant-chat .message {
+    font-size: 16px !important;
+    line-height: 1.4 !important;
+}
+
+/* Кнопки «поделиться» и «удалить» в переписке не нужны. */
+#assistant-chat button[aria-label*="hare"],
+#assistant-chat button[aria-label*="elete"],
+#assistant-chat button[aria-label*="rash"],
+#assistant-chat button[title*="hare"],
+#assistant-chat button[title*="elete"] {
+    display: none !important;
+}
+
+/* --- Помощник во весь экран на телефоне ---------------------------------
+
+   В общей колонке реплики ломались по одному слову в строку. На
+   телефоне помощник открывается поверх страницы целиком, а вернуться к
+   вакансиям можно кнопкой сверху. */
+
+@media (max-width: 900px) {
+    #assistant-side {
+        position: fixed !important;
+        inset: 0 !important;
+        z-index: 1000;
+        margin: 0 !important;
+        padding: 12px !important;
+        border-radius: 0 !important;
+        background: #ffffff !important;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+    }
+
+    #assistant-chat {
+        height: auto !important;
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+    }
+
+    #assistant-chat .message {
+        font-size: 15px !important;
+        max-width: 100% !important;
+    }
+
+    /* Шар поменьше: на телефоне он съедал половину экрана. */
+    .assist-orb {
+        width: 56px;
+        height: 56px;
+        margin: 8px auto 10px;
+    }
+
+    #assistant-back {
+        align-self: flex-start;
+    }
+}
+
+/* --- Переписка: один пузырь вместо трёх вложенных ------------------------
+
+   Gradio кладёт реплику в несколько вложенных блоков, и каждому достаётся
+   фон и рамка — получалась рамка в рамке в рамке. Оставляем внешний
+   пузырь, остальным снимаем фон и границу. */
+
+#assistant-chat .message .message,
+#assistant-chat .message .latest,
+#assistant-chat .message .message-content,
+#assistant-chat .message .md {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+}
+
+/* Размер задаётся и вложенным элементам: текст живёт в span, а общее
+   правило для подписей делало его крупнее пузыря. */
+#assistant-chat .message,
+#assistant-chat .message *,
+#assistant-chat .message .md,
+#assistant-chat .message span {
+    font-size: 16px !important;
+    line-height: 1.45 !important;
+}
+
+@media (max-width: 900px) {
+    #assistant-chat .message,
+    #assistant-chat .message *,
+    #assistant-chat .message .md,
+    #assistant-chat .message span {
+        font-size: 15px !important;
+    }
+}
+
+/* Иконки-кнопки над перепиской (поделиться, очистить, копировать). */
+#assistant-chat .icon-button,
+#assistant-chat button.icon-button {
+    display: none !important;
+}
+
+/* --- Реплики без рамок, во всю ширину -----------------------------------
+
+   Пузырь с рамкой сужал строку и резал её пополам. Теперь текст идёт по
+   всей ширине помощника, а кто говорит — видно по цвету и выравниванию.
+   Значки собеседников убраны: они забирали часть строки. */
+
+#assistant-chat .avatar-container,
+#assistant-chat img.avatar-image {
+    display: none !important;
+}
+
+#assistant-chat .message,
+#assistant-chat [data-testid="bot"],
+#assistant-chat [data-testid="user"] {
+    max-width: 100% !important;
+    width: 100% !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 6px 0 !important;
+}
+
+#assistant-chat .message.bot,
+#assistant-chat .message.bot *,
+#assistant-chat [data-testid="bot"],
+#assistant-chat [data-testid="bot"] * {
+    background: transparent !important;
+    color: #101828 !important;
+    -webkit-text-fill-color: #101828 !important;
+    text-align: left;
+}
+
+/* Ответ кандидата — морской волной и по правому краю. */
+#assistant-chat .message.user,
+#assistant-chat .message.user *,
+#assistant-chat [data-testid="user"],
+#assistant-chat [data-testid="user"] * {
+    background: transparent !important;
+    color: #0b5e78 !important;
+    -webkit-text-fill-color: #0b5e78 !important;
+    font-weight: 600;
+    text-align: right;
+}
+
+#assistant-chat .message,
+#assistant-chat .message *,
+#assistant-chat .message .md,
+#assistant-chat .message span {
+    font-size: 14px !important;
+    line-height: 1.45 !important;
+}
+
+/* Помощник закрывает экран целиком: карточки не должны просвечивать
+   из-под него. */
+@media (max-width: 900px) {
+    #assistant-side {
+        height: 100% !important;
+        max-height: 100% !important;
+        background: #ffffff !important;
+    }
+
+    #assistant-chat .message,
+    #assistant-chat .message *,
+    #assistant-chat .message .md,
+    #assistant-chat .message span {
+        font-size: 14px !important;
+    }
+}
+
+/* Остаточная обводка вокруг реплики: рамка стоит на самих абзацах и на
+   обёртке кнопок-иконок. */
+#assistant-chat p,
+#assistant-chat .icon-button-wrapper,
+#assistant-chat .avatar-container {
+    border: none !important;
+    background: transparent !important;
+}
+
+#assistant-chat .icon-button-wrapper {
+    display: none !important;
+}
