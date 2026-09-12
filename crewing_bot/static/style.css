@@ -1441,3 +1441,77 @@ gradio-app,
 #assistant-chat .icon-button-wrapper {
     display: none !important;
 }
+
+/* --- Реплики: спокойная серая подложка с полями --------------------------
+
+   Текст впритык к краю читался как черновик. Возвращаем мягкий фон и
+   поля, но подложка одна — у внешнего блока; вложенные остаются
+   прозрачными, иначе снова выходит рамка в рамке. */
+
+#assistant-chat .message,
+#assistant-chat [data-testid="bot"],
+#assistant-chat [data-testid="user"] {
+    background: #f1f3f5 !important;
+    border-radius: 14px !important;
+    padding: 12px 16px !important;
+    margin: 6px 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+}
+
+/* Ответ кандидата — чуть темнее и холоднее, чтобы отличался от реплик
+   помощника, но не спорил с ними. */
+#assistant-chat .message.user,
+#assistant-chat [data-testid="user"] {
+    background: #e6eef2 !important;
+}
+
+#assistant-chat .message.user,
+#assistant-chat .message.user *,
+#assistant-chat [data-testid="user"],
+#assistant-chat [data-testid="user"] * {
+    color: #0b5e78 !important;
+    -webkit-text-fill-color: #0b5e78 !important;
+}
+
+#assistant-chat .message.bot,
+#assistant-chat .message.bot *,
+#assistant-chat [data-testid="bot"],
+#assistant-chat [data-testid="bot"] * {
+    color: #1f2933 !important;
+    -webkit-text-fill-color: #1f2933 !important;
+}
+
+/* Реплике помощника фон задаём тем же селектором, что и цвет текста:
+   более раннее правило с .message.bot специфичнее простого .message и
+   оставляло подложку прозрачной. */
+#assistant-chat .message.bot,
+#assistant-chat [data-testid="bot"] {
+    background: #f1f3f5 !important;
+}
+
+/* Вложенные блоки остаются прозрачными — иначе снова рамка в рамке. */
+#assistant-chat .message.bot *,
+#assistant-chat .message.user * {
+    background: transparent !important;
+}
+
+/* Кнопка отправки стояла по нижнему краю поля — ставим по середине. */
+#assistant-input .input-container {
+    align-items: center !important;
+}
+
+#assistant-input .submit-button {
+    align-self: center !important;
+}
+
+/* Зелёный шар прижимался к верхней кромке — опускаем. */
+.assist-orb {
+    margin-top: 22px;
+}
+
+@media (max-width: 900px) {
+    .assist-orb {
+        margin-top: 18px;
+    }
+}
