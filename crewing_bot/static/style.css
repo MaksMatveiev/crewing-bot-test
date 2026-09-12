@@ -609,100 +609,61 @@ gradio-app,
 
 /* --- Шапка страницы ------------------------------------------------------
 
-   Белая панель со скруглением поверх фона: слева значок и название,
-   посередине разделы, справа кнопка. */
+   Шапка и строка вкладок — одно и то же: слева значок с названием,
+   справа «Кандидат» и «Рекрутер». Отдельной полосы под шапкой больше
+   нет, и переключение стоит там, где его ищут. */
 
-.site-head {
-    display: flex;
+.gradio-container [role="tablist"] {
+    display: flex !important;
     align-items: center;
-    gap: 18px;
-    padding: 10px 18px;
-    margin: 0 0 18px;
+    gap: 8px;
+    padding: 8px 22px !important;
+    margin: 0 0 20px !important;
     background: #ffffff;
-    border: 1px solid #e6e9e4;
+    border: 1px solid #e6e9e4 !important;
     border-radius: 999px;
     box-shadow: 0 6px 20px rgba(16, 24, 40, 0.08);
 }
 
-.site-head .head-brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-weight: 700;
+/* Название агентства со значком. Текст задан здесь, а не в разметке:
+   Gradio вырезает из неё теги <style>. */
+.gradio-container [role="tablist"]::before {
+    content: "Меридиан";
     font-size: 24px !important;
-    color: #101828 !important;
-    text-decoration: none;
+    font-weight: 700;
+    color: #101828;
+    padding-left: 44px;
+    margin-right: auto;
+    line-height: 34px;
+    background: url("/static/favicon.svg") left center / 34px 34px no-repeat;
+    white-space: nowrap;
 }
 
-.site-head .head-brand img {
-    border-radius: 10px;
-    display: block;
-}
-
-.site-head .head-nav {
-    display: flex;
-    gap: 22px;
-    margin-left: auto;
-}
-
-.site-head .head-link {
-    font-size: 20px !important;
+.gradio-container [role="tablist"] button[role="tab"] {
+    padding: 8px 18px !important;
+    border: none !important;
+    border-radius: 999px !important;
+    font-size: 21px !important;
     color: #6b7a6e !important;
-    padding-bottom: 2px;
 }
 
-.site-head .head-link.is-current {
-    color: #101828 !important;
-    border-bottom: 2px solid #101828;
-}
-
-.site-head .head-action {
-    margin-left: auto;
-    background: #101828;
+.gradio-container [role="tablist"] button[role="tab"][aria-selected="true"] {
+    background: #101828 !important;
     color: #ffffff !important;
-    font-size: 20px !important;
-    font-weight: 600;
-    padding: 10px 20px;
-    border-radius: 999px;
-    text-decoration: none;
-    transition: background .25s ease, transform .12s ease;
+    border: none !important;
 }
 
-.site-head .head-action:hover {
-    background: #0e7490;
-}
-
-.site-head .head-action:active {
-    transform: scale(.97);
-}
-
-/* На узком экране разделы прячем: на телефоне важны название и кнопка. */
-@media (max-width: 820px) {
-    .site-head {
+/* На узком экране название прячем: место нужно самим вкладкам. */
+@media (max-width: 700px) {
+    .gradio-container [role="tablist"] {
         border-radius: 20px;
-        gap: 12px;
+        padding: 8px 12px !important;
     }
 
-    .site-head .head-nav {
-        display: none;
+    .gradio-container [role="tablist"]::before {
+        padding-left: 34px;
+        font-size: 0 !important;
     }
-}
-
-/* Gradio подчёркивает все ссылки — в шапке это лишнее. */
-.site-head a,
-.site-head a:hover,
-.site-head .head-action,
-.site-head .head-action:hover {
-    text-decoration: none !important;
-}
-
-/* Подчёркивание выбранной вкладки шло вплотную к буквам — отодвигаем. */
-.gradio-container button[role="tab"] {
-    padding: 10px 16px 14px !important;
-}
-
-.gradio-container button[role="tab"][aria-selected="true"] {
-    border-bottom-width: 3px !important;
 }
 
 /* --- Мелкие служебные подписи ---------------------------------------------
@@ -825,4 +786,140 @@ gradio-app,
 /* Стрелки и название месяца должны стоять в одну строку. */
 #calendar-head {
     flex-wrap: nowrap !important;
+}
+
+/* --- Переписка с помощником ---------------------------------------------
+
+   Вид мессенджера: значок собеседника сбоку, подпись над репликой,
+   пузырь не во всю ширину. Так видно, кто что сказал, даже если человек
+   вернулся к разговору через час. */
+
+#assistant-chat .message-row,
+#assistant-chat .message-wrap > div {
+    gap: 10px;
+}
+
+#assistant-chat img.avatar-image,
+#assistant-chat .avatar-container img {
+    width: 38px !important;
+    height: 38px !important;
+    border-radius: 50%;
+    border: none !important;
+    background: transparent !important;
+}
+
+#assistant-chat .message {
+    max-width: 82% !important;
+    padding: 12px 14px !important;
+    font-size: 20px !important;
+    line-height: 1.45 !important;
+}
+
+/* --- Подписи полей вдвое крупнее ----------------------------------------
+
+   Название поля, выбранное значение и строка-пояснение над карточками
+   читаются с телефона первым делом — они и увеличены. Календарь,
+   карточки и шапка сохраняют свои размеры: иначе семь колонок дат и
+   сетка мест перестают помещаться. */
+
+#vacancy-side label,
+#vacancy-side label span,
+#vacancy-side .block-label,
+#vacancy-side .block-label span {
+    font-size: 34px !important;
+}
+
+#vacancy-side > .md p,
+#vacancy-side > div > .md p,
+#rank-picker input,
+#rank-picker span,
+.gradio-container ul[role="listbox"] li {
+    font-size: 40px !important;
+}
+
+/* Полю нужно больше высоты под крупный текст. */
+#rank-picker input {
+    padding: 10px 12px !important;
+}
+
+/* Строка «Открытых вакансий» — тот же размер, что подпись поля. Текст
+   внутри карточек исключён: там своя, более мелкая иерархия. */
+#vacancy-side p:not(.vac-vessel):not(.vac-meta):not(.vac-salary):not(.vac-closed) {
+    font-size: 30px !important;
+}
+
+/* На узком экране крупное значение не помещалось в поле и обрезалось. */
+@media (max-width: 900px) {
+    #vacancy-side label,
+    #vacancy-side label span,
+    #vacancy-side .block-label,
+    #vacancy-side .block-label span,
+    #rank-picker input,
+    #rank-picker span,
+    #vacancy-side p:not(.vac-vessel):not(.vac-meta):not(.vac-salary):not(.vac-closed) {
+        font-size: 24px !important;
+    }
+}
+
+/* --- Ширина помощника ----------------------------------------------------
+
+   С аватарами и крупным текстом узкая колонка ломала реплики на
+   отдельные буквы. Помощнику нужна твёрдая ширина, а пузырю — вся она. */
+
+#assistant-side {
+    flex: 0 0 400px !important;
+    min-width: 400px !important;
+    max-width: 400px !important;
+}
+
+#assistant-chat .message {
+    max-width: 100% !important;
+    font-size: 19px !important;
+}
+
+#assistant-chat img.avatar-image,
+#assistant-chat .avatar-container img {
+    width: 32px !important;
+    height: 32px !important;
+}
+
+@media (max-width: 1200px) {
+    #assistant-side {
+        flex: 1 1 100% !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+    }
+}
+
+/* Кнопки очистки и копирования в переписке человеку не нужны — в этом
+   окне он только отвечает помощнику. */
+#assistant-chat button[aria-label="Clear"],
+#assistant-chat button[aria-label="Copy conversation"],
+#assistant-chat button[aria-label="Copy message"],
+#assistant-chat button[aria-label="Share conversation"],
+#assistant-chat button[aria-label="Retry"],
+#assistant-chat button[aria-label="Undo"] {
+    display: none !important;
+}
+
+/* Значок собеседника рядом с репликой. */
+#assistant-chat img.avatar-image {
+    width: 34px !important;
+    height: 34px !important;
+    border-radius: 50% !important;
+    border: none !important;
+    background: transparent !important;
+    object-fit: cover;
+}
+
+/* Реплика со значком собеседника вылезала за край и включала
+   горизонтальную прокрутку — переносим длинные слова. */
+#assistant-chat {
+    overflow-x: hidden !important;
+}
+
+#assistant-chat .message,
+#assistant-chat .message * {
+    overflow-wrap: anywhere;
+    word-break: normal;
 }

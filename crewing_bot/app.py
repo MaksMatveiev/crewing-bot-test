@@ -1301,30 +1301,21 @@ def style_version() -> str:
 
 AGENCY_NAME = "Меридиан"
 
-HEADER_HTML = """
-<link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={version}">
-<header class="site-head">
-  <a class="head-brand" href="#">
-    <img src="/static/favicon.svg?v={version}" alt="" width="34" height="34">
-    <span>{name}</span>
-  </a>
-  <nav class="head-nav">
-    <span class="head-link is-current">Вакансии</span>
-    <span class="head-link">Интервью</span>
-    <span class="head-link">Экипаж</span>
-  </nav>
-  <a class="head-action" href="#vacancy-side">Подобрать вакансию</a>
-</header>
-"""
+HEADER_HTML = (
+    '<link rel="icon" type="image/svg+xml"'
+    ' href="/static/favicon.svg?v={version}">'
+)
 
 
 def header_html() -> str:
-    """Шапка страницы и значок вкладки.
+    """Значок вкладки.
 
-    Значок и шапка берут один и тот же файл: отпечаток стилей в адресе
-    заставляет браузер перечитать его после выкладки.
+    Название агентства рисует файл стилей: Gradio вырезает из разметки
+    теги <style>, и заданное здесь правило до страницы не доходило.
+    Отпечаток в адресе заставляет браузер перечитать значок после
+    выкладки.
     """
-    return HEADER_HTML.format(name=AGENCY_NAME, version=style_version())
+    return HEADER_HTML.format(version=style_version())
 
 
 CARDS_PER_ROW = 3
@@ -1387,7 +1378,10 @@ def build_ui():
                         "<span class='assist-name'>Помощник</span></div>"
                         "<div class='assist-orb'></div>")
                     chat = gr.Chatbot(
-                        height=380, show_label=False, elem_id="assistant-chat")
+                        height=420, show_label=False,
+                        elem_id="assistant-chat",
+                        avatar_images=(str(STATIC_DIR / "avatar-user.svg"),
+                                       str(STATIC_DIR / "favicon.svg")))
                     answer = gr.Textbox(
                         placeholder="Напишите ответ…", show_label=False,
                         lines=1, submit_btn=True, elem_id="assistant-input")
