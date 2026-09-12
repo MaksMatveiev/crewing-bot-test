@@ -11,6 +11,7 @@ import re
 import sys
 import time
 from calendar import monthrange
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -555,6 +556,153 @@ def _handle_slot_choice(conn, message: str, state, vacancy):
     return confirmation, vars(chosen)
 
 
+NO_VACANCIES_TEXT = (
+    "По этой должности открытых вакансий сейчас нет. "
+    "Ниже — всё, что открыто на сегодня."
+)
+
+
+def gallery_caption(vacancy) -> str:
+    """Подпись под снимком в окне вакансий.
+
+    Без значков: кандидат ищет свою должность глазами, и картинки рядом
+    с текстом только мешают читать.
+    """
+    return (f"{vacancy['rank']} — {vacancy['vessel_type']} · "
+            f"${vacancy['salary_usd']}/мес · {vacancy['contract_months']} мес")
+
+
+def vacancy_gallery(vacancies) -> list:
+    """Список пар «снимок, подпись» для окна вакансий."""
+    return [(str(STATIC_DIR / "vessels" / Path(vessel_photo(v["vessel_type"])).name),
+             gallery_caption(v)) for v in vacancies]
+
+
+def candidate_search(rank_text: str):
+    """Найти открытые вакансии по должности кандидата.
+
+    Возвращает (галерея, номера вакансий, подпись). Номера хранятся
+    отдельно: по щелчку приходит только место в галерее, а какая это
+    вакансия — знает список.
+    """
+    conn, error = _open_conn()
+    if error:
+        return [], [], error
+    try:
+        wanted = (rank_text or "").strip()
+        found = db.list_all_vacancies(conn, wanted, "open") if wanted else []
+        message = ""
+        if wanted and not found:
+            found = db.list_all_vacancies(conn, None, "open")
+            message = NO_VACANCIES_TEXT
+        elif not wanted:
+            found = db.list_all_vacancies(conn, None, "open")
+    finally:
+        conn.close()
+
+    if not found:
+        return [], [], "Сейчас открытых вакансий нет. Загляните, пожалуйста, позже."
+    if not message:
+        message = f"Нашлось вакансий: {len(found)}. Нажмите на любую — откроется карточка."
+    return vacancy_gallery(found), [v["id"] for v in found], message
+
+
+def _open_days_line(conn) -> str:
+    """Строка с ближайшими датами интервью или честное «дат пока нет»."""
+    days = db.list_open_days(conn)
+    if not days:
+        return ("Свободных дат для интервью пока нет — рекрутер откроет их "
+                "в ближайшее время.")
+    listed = ", ".join(item["day"].strftime("%d.%m") for item in days[:8])
+    return f"Свободные даты для интервью: {listed} (время UTC)."
+
+
+def candidate_card(vacancy_id: int):
+    """Карточка выбранной вакансии и доступные даты.
+
+    Возвращает (разметка карточки, номер вакансии, показывать ли кнопку
+    записи). Кнопка появляется только когда карточка открыта: нажимать
+    «Записаться» до выбора вакансии не на что.
+    """
+    if not vacancy_id:
+        return "", 0, gr.update(visible=False)
+
+    conn, error = _open_conn()
+    if error:
+        return f"<p class='cards-empty'>{error}</p>", 0, gr.update(visible=False)
+    try:
+        vacancy = db.get_vacancy(conn, int(vacancy_id))
+        if not vacancy or not vacancy["is_active"]:
+            return ("<p class='cards-empty'>Эта вакансия уже закрыта. "
+                    "Выберите, пожалуйста, другую.</p>", 0,
+                    gr.update(visible=False))
+        dates = _open_days_line(conn)
+    finally:
+        conn.close()
+
+    html = (
+        "<div class='vacancy-detail'>"
+        f"<img src='{vessel_photo(vacancy['vessel_type'])}'"
+        f" alt='{_escape(vacancy['vessel_type'])}'>"
+        "<div class='detail-body'>"
+        f"<h3>{_escape(vacancy['rank'])}</h3>"
+        f"<p class='detail-vessel'>{_escape(vacancy['vessel_type'])}</p>"
+        f"<p class='detail-salary'>${vacancy['salary_usd']} / мес</p>"
+        f"<p class='detail-meta'>Контракт {vacancy['contract_months']} мес"
+        f" · вакансия №{vacancy['id']}</p>"
+        f"<p class='detail-req'><b>Требования:</b> "
+        f"{_escape(vacancy['requirements']) or 'не указаны'}</p>"
+        f"<p class='detail-dates'>{_escape(dates)}</p>"
+        "</div></div>"
+    )
+    return html, vacancy["id"], gr.update(visible=True)
+
+
+def candidate_sign_up(vacancy_id: int, state_dict: dict):
+    """Начать запись на выбранную вакансию.
+
+    Дальше работает та же воронка, что и в чате: анкета, скрининг, выбор
+    времени. Окно с вакансиями только заменяет выбор должности и флота
+    вслепую — правила записи от этого не меняются.
+    """
+    if not vacancy_id:
+        return gr.update(), state_dict or {}
+
+    conn, error = _open_conn()
+    if error:
+        return [{"role": "assistant", "content": error}], state_dict or {}
+    try:
+        vacancy = db.get_vacancy(conn, int(vacancy_id))
+        if not vacancy or not vacancy["is_active"]:
+            return ([{"role": "assistant",
+                      "content": "Эта вакансия уже закрыта. Выберите другую, "
+                                 "пожалуйста."}], state_dict or {})
+        has_days = bool(db.list_open_days(conn))
+    finally:
+        conn.close()
+
+    if not has_days:
+        # Записывать некуда: слотов нет ни на один день. Честнее сказать
+        # сразу, чем провести человека через анкету и отказать в конце.
+        return ([{"role": "assistant",
+                  "content": "Свободных дат для интервью пока нет. "
+                             "Загляните, пожалуйста, позже — рекрутер "
+                             "открывает дни каждую неделю."}],
+                state_dict or {})
+
+    state = funnel.State(**(state_dict or {}))
+    state = replace(state,
+                    wanted_rank=vacancy["rank"],
+                    wanted_vessel_type=vacancy["vessel_type"])
+    state = funnel.select_vacancy(state, vacancy["id"],
+                                  vacancy["screening_questions"] or [])
+
+    greeting = (f"Записываю вас на вакансию {vacancy['rank']} — "
+                f"{vacancy['vessel_type']}. Задам несколько вопросов "
+                f"для заявки.\n\n{funnel.next_question(state)}")
+    return [{"role": "assistant", "content": greeting}], vars(state)
+
+
 def candidate_chat(message, history, state_dict):
     return handle(to_plain_text(message), state_dict)
 
@@ -1072,6 +1220,30 @@ def build_ui():
         gr.HTML(f'<link rel="stylesheet" href="/static/style.css?v={style_version()}">')
         with gr.Tab("Кандидат"):
             state = gr.State({})
+
+            gr.Markdown("### Подбор вакансии")
+            with gr.Row():
+                rank_query = gr.Textbox(
+                    label="Ваша должность", scale=3,
+                    placeholder="например, 2nd Engineer")
+                search_vacancies = gr.Button(
+                    "Показать вакансии", variant="primary", scale=1)
+            search_message = gr.Markdown("")
+
+            # Номера вакансий держим отдельно: по щелчку приходит только
+            # место в галерее, а какая это вакансия — знает список.
+            found_ids = gr.State([])
+            chosen_vacancy = gr.State(0)
+
+            # allow_preview=False: щелчок должен открывать карточку
+            # вакансии, а не увеличенный снимок судна.
+            vacancy_window = gr.Gallery(
+                label="Открытые вакансии", columns=4, height=260,
+                allow_preview=False, object_fit="cover",
+                elem_id="vacancy-window")
+            vacancy_detail = gr.HTML("")
+            sign_up_button = gr.Button(
+                "Записаться на интервью", variant="primary", visible=False)
             # Приветствие попадает в разметку сразу, при сборке страницы:
             # событие загрузки отрабатывает уже после первой отрисовки, и на
             # спящем сервисе человек успевал увидеть пустой чат.
@@ -1267,6 +1439,29 @@ def build_ui():
                 inputs=[session_password, calendar_year, calendar_month],
                 outputs=calendar_outputs,
             )
+
+        def _pick_from_window(ids, event: gr.SelectData):
+            """Щелчок по снимку в окне вакансий."""
+            if not ids or event.index is None or event.index >= len(ids):
+                return "", 0, gr.update(visible=False)
+            return candidate_card(ids[event.index])
+
+        search_vacancies.click(
+            candidate_search, inputs=rank_query,
+            outputs=[vacancy_window, found_ids, search_message],
+        )
+        rank_query.submit(
+            candidate_search, inputs=rank_query,
+            outputs=[vacancy_window, found_ids, search_message],
+        )
+        vacancy_window.select(
+            _pick_from_window, inputs=found_ids,
+            outputs=[vacancy_detail, chosen_vacancy, sign_up_button],
+        )
+        sign_up_button.click(
+            candidate_sign_up, inputs=[chosen_vacancy, state],
+            outputs=[chatbot, state],
+        )
 
         def _open_chat():
             """Приветствие и первый вопрос — сразу при открытии страницы."""

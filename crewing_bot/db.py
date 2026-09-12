@@ -308,7 +308,8 @@ def get_vacancy(conn, vacancy_id: int):
     with conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(
             "SELECT id, rank, vessel_type, contract_months, salary_usd,"
-            " requirements, screening_questions FROM vacancies WHERE id = %s",
+            " requirements, screening_questions, is_active"
+            " FROM vacancies WHERE id = %s",
             (vacancy_id,),
         )
         row = cur.fetchone()
@@ -408,6 +409,22 @@ def close_free_day(conn, day: date) -> tuple:
             (day,),
         )
         return removed, cur.fetchone()[0]
+
+
+def list_open_days(conn, limit: int = 14) -> list:
+    """Ближайшие дни, где есть свободное время для интервью.
+
+    Кандидату показывают дни, а не полсотни получасовых слотов: сначала
+    он смотрит, попадает ли вообще в даты, и только потом выбирает час.
+    """
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT starts_at::date AS day, COUNT(*) AS free FROM slots"
+            " WHERE status = 'open' AND starts_at > NOW()"
+            " GROUP BY day ORDER BY day LIMIT %s",
+            (limit,),
+        )
+        return [{"day": row[0], "free": row[1]} for row in cur.fetchall()]
 
 
 def book_slot(conn, slot_id: int) -> bool:

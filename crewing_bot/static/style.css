@@ -322,3 +322,78 @@ body {
     opacity: 0.35;
     box-shadow: none !important;
 }
+
+/* --- Карточка вакансии у кандидата -------------------------------------- */
+
+.vacancy-detail {
+    display: flex;
+    gap: 18px;
+    background: #ffffff;
+    border: 1px solid #d6e8f3;
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 10px 26px rgba(6, 41, 68, 0.1);
+    margin: 10px 0 4px;
+}
+
+.vacancy-detail img {
+    width: 260px;
+    min-height: 200px;
+    object-fit: cover;
+    flex: 0 0 auto;
+    background: #e3f2f9;
+}
+
+.vacancy-detail .detail-body {
+    padding: 16px 18px 18px 0;
+}
+
+.vacancy-detail h3 {
+    margin: 0 0 2px;
+    color: #062944 !important;
+}
+
+.vacancy-detail .detail-vessel {
+    margin: 0 0 10px;
+    color: #2c5570 !important;
+}
+
+.vacancy-detail .detail-salary {
+    margin: 0 0 4px;
+    font-size: 20px;
+    font-weight: 700;
+    color: #0b5e78 !important;
+}
+
+.vacancy-detail .detail-meta,
+.vacancy-detail .detail-req {
+    margin: 0 0 8px;
+    color: #05253f !important;
+}
+
+/* Даты интервью — зелёным, тем же, что открытый день в календаре:
+   кандидат и рекрутер смотрят на один и тот же признак. */
+.vacancy-detail .detail-dates {
+    margin: 10px 0 0;
+    padding: 8px 12px;
+    border-radius: 12px;
+    background: #e2f5e9;
+    color: #1b6b3a !important;
+    font-weight: 600;
+}
+
+/* На телефоне снимок встаёт над текстом, иначе на него не остаётся места. */
+@media (max-width: 620px) {
+    .vacancy-detail {
+        flex-direction: column;
+    }
+
+    .vacancy-detail img {
+        width: 100%;
+        min-height: 150px;
+    }
+
+    .vacancy-detail .detail-body {
+        padding: 0 16px 16px;
+    }
+}

@@ -6,6 +6,7 @@
 """
 
 import types
+from pathlib import Path
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -1153,3 +1154,146 @@ def test_click_on_empty_cell_changes_nothing(monkeypatch):
     answer = app._day_click(0)(password, 2026, 9)
 
     assert answer[0] == "Сентябрь 2026"
+
+
+# --- Окно вакансий у кандидата ----------------------------------------------
+
+
+def _candidate_db(monkeypatch, found=None, vacancy=None, days=None):
+    """База для окна вакансий: что нашли, что открыли, какие даты свободны."""
+    found = [] if found is None else found
+    days = [] if days is None else days
+
+    monkeypatch.setattr(app, "_open_conn", lambda: (FakeConn(), None))
+    monkeypatch.setattr(app.db, "list_all_vacancies",
+                        lambda conn, search=None, only=None: list(found))
+    monkeypatch.setattr(app.db, "get_vacancy",
+                        lambda conn, vacancy_id: vacancy)
+    monkeypatch.setattr(app.db, "list_open_days",
+                        lambda conn, limit=14: list(days))
+
+
+def test_caption_has_no_icons():
+    """Кандидат ищет должность глазами — значки рядом только мешают."""
+    caption = app.gallery_caption(_row(1))
+
+    assert caption == "2nd Engineer — bulk carrier · $6500/мес · 6 мес"
+    assert all(ord(char) < 0x2000 or char in "—·" for char in caption)
+
+
+def test_search_returns_pictures_and_numbers(monkeypatch):
+    _candidate_db(monkeypatch, found=[_row(1), _row(2)])
+
+    pictures, ids, message = app.candidate_search("engineer")
+
+    assert len(pictures) == 2
+    assert ids == [1, 2]
+    assert "Нашлось вакансий: 2" in message
+
+
+def test_search_without_matches_shows_everything(monkeypatch):
+    """Пустой ответ хуже честного «по этой должности нет, вот что есть»."""
+    calls = []
+
+    def list_all(conn, search=None, only=None):
+        calls.append(search)
+        return [] if search else [_row(5)]
+
+    monkeypatch.setattr(app, "_open_conn", lambda: (FakeConn(), None))
+    monkeypatch.setattr(app.db, "list_all_vacancies", list_all)
+
+    pictures, ids, message = app.candidate_search("капитан подлодки")
+
+    assert calls == ["капитан подлодки", None]
+    assert ids == [5]
+    assert message == app.NO_VACANCIES_TEXT
+
+
+def test_search_with_nothing_open_says_so(monkeypatch):
+    _candidate_db(monkeypatch, found=[])
+
+    pictures, ids, message = app.candidate_search("AB")
+
+    assert pictures == [] and ids == []
+    assert "открытых вакансий нет" in message
+
+
+def test_card_opens_with_requirements_and_dates(monkeypatch):
+    vacancy = dict(_row(7), requirements="Опыт на танкерах от 12 месяцев")
+    _candidate_db(monkeypatch, vacancy=vacancy,
+                  days=[{"day": date(2026, 9, 15), "free": 12},
+                        {"day": date(2026, 9, 17), "free": 6}])
+
+    html, chosen, button = app.candidate_card(7)
+
+    assert "Опыт на танкерах" in html
+    assert "15.09, 17.09" in html
+    assert chosen == 7
+    assert button["visible"] is True
+
+
+def test_card_without_open_days_says_dates_are_not_ready(monkeypatch):
+    """Кандидат должен видеть, что записываться пока некуда."""
+    _candidate_db(monkeypatch, vacancy=_row(7), days=[])
+
+    html, _, _ = app.candidate_card(7)
+
+    assert "Свободных дат для интервью пока нет" in html
+
+
+def test_closed_vacancy_cannot_be_opened(monkeypatch):
+    _candidate_db(monkeypatch, vacancy=_row(7, active=False))
+
+    html, chosen, button = app.candidate_card(7)
+
+    assert "уже закрыта" in html
+    assert chosen == 0
+    assert button["visible"] is False
+
+
+def test_sign_up_starts_the_funnel_on_the_chosen_vacancy(monkeypatch):
+    vacancy = dict(_row(7), screening_questions=["Опыт на танкерах?"])
+    _candidate_db(monkeypatch, vacancy=vacancy,
+                  days=[{"day": date(2026, 9, 15), "free": 12}])
+
+    history, state = app.candidate_sign_up(7, {})
+
+    assert state["vacancy_id"] == 7
+    assert state["step"] == funnel.COLLECTING_PROFILE
+    assert state["wanted_rank"] == "2nd Engineer"
+    assert state["screening_questions"] == ["Опыт на танкерах?"]
+    assert "2nd Engineer" in history[0]["content"]
+
+
+def test_sign_up_asks_the_first_profile_question(monkeypatch):
+    _candidate_db(monkeypatch, vacancy=_row(7),
+                  days=[{"day": date(2026, 9, 15), "free": 12}])
+
+    history, state = app.candidate_sign_up(7, {})
+
+    assert funnel.PROFILE_FIELDS[0][1] in history[0]["content"]
+
+
+def test_sign_up_refuses_when_no_day_is_green(monkeypatch):
+    """Без открытых дней анкету не начинаем: отказ в конце обиднее."""
+    _candidate_db(monkeypatch, vacancy=_row(7), days=[])
+
+    history, state = app.candidate_sign_up(7, {})
+
+    assert "Свободных дат" in history[0]["content"]
+    assert state == {}
+
+
+def test_sign_up_refuses_a_closed_vacancy(monkeypatch):
+    _candidate_db(monkeypatch, vacancy=_row(7, active=False),
+                  days=[{"day": date(2026, 9, 15), "free": 12}])
+
+    history, state = app.candidate_sign_up(7, {})
+
+    assert "уже закрыта" in history[0]["content"]
+    assert state == {}
+
+
+def test_gallery_points_at_files_that_exist(monkeypatch):
+    for path, _ in app.vacancy_gallery([_row(1), _row(2, vessel="LNG tanker")]):
+        assert Path(path).exists()

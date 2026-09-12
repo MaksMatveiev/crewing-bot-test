@@ -579,3 +579,13 @@ def test_application_survives_closing_its_vacancy(conn):
     rows = db.list_applications(conn)
     assert len(rows) == 1
     assert rows[0]["rank"] == "AB"
+
+
+def test_get_vacancy_tells_whether_it_is_open(conn):
+    """Без этой колонки кандидату можно было бы открыть закрытую вакансию."""
+    vacancy_id = _vacancy(conn)
+
+    assert db.get_vacancy(conn, vacancy_id)["is_active"] is True
+
+    db.set_vacancy_active(conn, vacancy_id, False)
+    assert db.get_vacancy(conn, vacancy_id)["is_active"] is False
