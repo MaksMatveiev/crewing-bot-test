@@ -1385,3 +1385,26 @@ def test_digest_stays_quiet_without_a_channel(monkeypatch):
                         lambda: (_ for _ in ()).throw(AssertionError))
 
     assert app.run_daily_publication() == 0
+
+
+def test_publish_hour_follows_the_chosen_timezone(monkeypatch):
+    """«Восемь утра» рекрутер понимает по своим часам, а не по UTC."""
+    monkeypatch.setenv("PUBLISH_TIMEZONE", "Europe/Kyiv")
+
+    local = app.publish_now()
+    utc = datetime.utcnow()
+
+    assert abs((local - utc).total_seconds()) > 3000
+
+
+def test_unknown_timezone_falls_back_to_utc(monkeypatch):
+    """Опечатка в названии пояса не должна ронять публикацию."""
+    monkeypatch.setenv("PUBLISH_TIMEZONE", "Europe/Несуществующий")
+
+    assert abs((app.publish_now() - datetime.utcnow()).total_seconds()) < 5
+
+
+def test_without_timezone_we_stay_on_utc(monkeypatch):
+    monkeypatch.delenv("PUBLISH_TIMEZONE", raising=False)
+
+    assert abs((app.publish_now() - datetime.utcnow()).total_seconds()) < 5

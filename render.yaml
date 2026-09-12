@@ -32,5 +32,7 @@ services:
         sync: false
       - key: PUBLISH_HOUR
         value: "8"
+      - key: PUBLISH_TIMEZONE
+        value: "Europe/Kyiv"
       - key: SALARY_CURRENCY
         value: "USD"

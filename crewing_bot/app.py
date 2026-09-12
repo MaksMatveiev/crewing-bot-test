@@ -16,6 +16,7 @@ from calendar import monthrange
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import gradio as gr
 from dotenv import load_dotenv
@@ -1056,6 +1057,23 @@ PUBLISH_HOUR = int(os.getenv("PUBLISH_HOUR", "8"))
 PUBLISH_MARK = "last_channel_digest"
 
 
+def publish_now():
+    """Текущее время в поясе публикации.
+
+    Сервис живёт по UTC, а «восемь утра» рекрутер понимает по своим
+    часам. Пояс задаётся настройкой PUBLISH_TIMEZONE вида Europe/Kyiv;
+    неизвестное имя — не повод падать, тогда остаёмся на UTC.
+    """
+    name = os.getenv("PUBLISH_TIMEZONE", "").strip()
+    if not name:
+        return datetime.utcnow()
+    try:
+        return datetime.now(ZoneInfo(name)).replace(tzinfo=None)
+    except Exception:
+        logger.warning("Неизвестный часовой пояс %s — считаем по UTC", name)
+        return datetime.utcnow()
+
+
 def daily_publication_due(conn, now=None) -> bool:
     """Пора ли выкладывать вакансии.
 
@@ -1063,7 +1081,7 @@ def daily_publication_due(conn, now=None) -> bool:
     засыпает и просыпается, и без отметки канал получал бы один и тот же
     список по нескольку раз за день.
     """
-    now = now or datetime.utcnow()
+    now = now or publish_now()
     if now.hour < PUBLISH_HOUR:
         return False
     return db.get_setting(conn, PUBLISH_MARK) != now.date().isoformat()
@@ -1075,7 +1093,7 @@ def publish_open_vacancies(conn, now=None) -> int:
     Уже опубликованные правятся, новые публикуются: так в канале не
     копятся повторы одной и той же вакансии.
     """
-    now = now or datetime.utcnow()
+    now = now or publish_now()
     if not telegram.channel_configured():
         return 0
 
