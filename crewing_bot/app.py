@@ -31,6 +31,7 @@ logging.basicConfig(
 )
 
 KNOWLEDGE = (Path(__file__).parent / "knowledge.md").read_text(encoding="utf-8")
+STATIC_DIR = Path(__file__).parent / "static"
 
 
 def to_plain_text(content) -> str:
@@ -42,9 +43,77 @@ def to_plain_text(content) -> str:
     return content
 
 
+# Значок подбирается по части названия: рекрутер пишет «2nd Engineer»,
+# «Chief Engineer», «Single Engineer» — все они про машинную команду.
+RANK_ICONS = (
+    ("engineer", "⚙️"),
+    ("motorman", "⚙️"),
+    ("fitter", "⚙️"),
+    ("oiler", "⚙️"),
+    ("eto", "💡"),
+    ("electric", "💡"),
+    ("master", "🧭"),
+    ("captain", "🧭"),
+    ("officer", "🧭"),
+    ("mate", "🧭"),
+    ("cook", "🧑‍🍳"),
+    ("steward", "🍽️"),
+    ("messman", "🍽️"),
+    ("bosun", "⚓"),
+    ("ab", "⚓"),
+    ("os", "⚓"),
+    ("seaman", "⚓"),
+)
+
+VESSEL_ICONS = (
+    ("chemical", "🧪"),
+    ("lng", "🔥"),
+    ("lpg", "🔥"),
+    ("gas", "🔥"),
+    ("tanker", "🛢️"),
+    ("container", "📦"),
+    ("reefer", "❄️"),
+    ("cruise", "🛳️"),
+    ("passenger", "🛳️"),
+    ("yacht", "⛵"),
+    ("offshore", "🛠️"),
+    ("bulk", "🚢"),
+    ("cargo", "🚢"),
+)
+
+
+def _pick_icon(value, table, default):
+    """Найти значок по части названия. Порядок в таблице важен.
+
+    «chemical tanker» должен получить колбу, а не бочку, поэтому более
+    частные слова стоят в таблице раньше общих.
+    """
+    if not isinstance(value, str):
+        return default
+    text = value.casefold().strip()
+    if not text:
+        return default
+    words = set(text.replace("-", " ").split())
+    for needle, icon in table:
+        if needle in words or needle in text:
+            return icon
+    return default
+
+
+def rank_icon(rank) -> str:
+    """Значок должности. Незнакомая должность получает якорь."""
+    return _pick_icon(rank, RANK_ICONS, "⚓")
+
+
+def vessel_icon(vessel_type) -> str:
+    """Значок типа судна. Незнакомый тип получает судно."""
+    return _pick_icon(vessel_type, VESSEL_ICONS, "🚢")
+
+
 def render_vacancies(vacancies: list) -> str:
     return "\n".join(
-        f"{number}. {v['rank']} — {v['vessel_type']}, "
+        f"{number}. {rank_icon(v['rank'])} {v['rank']} — "
+        f"{vessel_icon(v['vessel_type'])} {v['vessel_type']}, "
         f"{v['contract_months']} мес, ${v['salary_usd']}/мес"
         for number, v in enumerate(vacancies, start=1)
     )
@@ -132,10 +201,16 @@ GREETING_TEXT = (
 )
 
 
-def render_options(options) -> str:
-    """Нумерованный список вариантов — должностей или типов судов."""
-    return "\n".join(f"{number}. {value}"
-                     for number, value in enumerate(options, start=1))
+def render_options(options, icon=None) -> str:
+    """Нумерованный список вариантов — должностей или типов судов.
+
+    icon — функция, подбирающая значок по названию. Без неё список
+    остаётся текстовым: так удобнее в тестах и в местах, где значок
+    не нужен.
+    """
+    return "\n".join(
+        f"{number}. {icon(value) + chr(32) if icon else str()}{value}"
+        for number, value in enumerate(options, start=1))
 
 
 def opening_message():
@@ -171,7 +246,7 @@ def opening_message():
         return "Сейчас открытых вакансий нет. Загляните позже.", empty
 
     state = funnel.offer_ranks(funnel.State(), ranks)
-    return GREETING_TEXT + "\n\n" + render_options(ranks), vars(state)
+    return GREETING_TEXT + "\n\n" + render_options(ranks, rank_icon), vars(state)
 
 
 def handle(message: str, state_dict: dict):
@@ -238,14 +313,14 @@ def _handle_with_db(conn, message: str, state):
         index = funnel.match_option(message, ranks)
         if index is None:
             return ("Не понял должность. Ответьте номером или названием:\n\n"
-                    + render_options(ranks)), vars(state)
+                    + render_options(ranks, rank_icon)), vars(state)
 
         state = funnel.select_rank(state, index)
         types = db.list_open_vessel_types(conn, state.wanted_rank)
         state = funnel.offer_vessel_types(state, types)
         return (f"Отлично, {state.wanted_rank}.\n\n"
                 "На каком флоте хотите работать? Ответьте номером или названием:\n\n"
-                + render_options(types)), vars(state)
+                + render_options(types, vessel_icon)), vars(state)
 
     if state.step == funnel.CHOOSING_VESSEL_TYPE:
         types = db.list_open_vessel_types(conn, state.wanted_rank)
@@ -254,13 +329,13 @@ def _handle_with_db(conn, message: str, state):
             ranks = db.list_open_ranks(conn)
             state = funnel.offer_ranks(funnel.State(), ranks)
             return ("По этой должности вакансий не осталось. "
-                    "Выберите другую:\n\n" + render_options(ranks)), vars(state)
+                    "Выберите другую:\n\n" + render_options(ranks, rank_icon)), vars(state)
 
         state = funnel.offer_vessel_types(state, types)
         index = funnel.match_option(message, types)
         if index is None:
             return ("Не понял тип флота. Ответьте номером или названием:\n\n"
-                    + render_options(types)), vars(state)
+                    + render_options(types, vessel_icon)), vars(state)
 
         state = funnel.select_vessel_type(state, index)
         matching = db.list_active_vacancies(conn, state.wanted_rank,
@@ -270,7 +345,7 @@ def _handle_with_db(conn, message: str, state):
             # вакансию закрыли между двумя запросами — не заводим в тупик.
             state = funnel.offer_vessel_types(state, types)
             return ("По такому сочетанию вакансий нет. "
-                    "Выберите другой тип флота:\n\n" + render_options(types)), vars(state)
+                    "Выберите другой тип флота:\n\n" + render_options(types, vessel_icon)), vars(state)
 
         return (f"Вот что есть: {state.wanted_rank} на "
                 f"{state.wanted_vessel_type}. Ответьте номером:\n\n"
@@ -321,12 +396,12 @@ def _current_question(conn, state, vacancies):
     """
     if state.step == funnel.CHOOSING_RANK and state.rank_options:
         listing = ("Вернёмся к выбору должности — ответьте номером:\n\n"
-                   + render_options(state.rank_options))
+                   + render_options(state.rank_options, rank_icon))
         return listing, listing, state
 
     if state.step == funnel.CHOOSING_VESSEL_TYPE and state.vessel_options:
         listing = ("Вернёмся к выбору типа флота — ответьте номером:\n\n"
-                   + render_options(state.vessel_options))
+                   + render_options(state.vessel_options, vessel_icon))
         return listing, listing, state
 
     if state.step == funnel.CHOOSING_VACANCY:
@@ -670,6 +745,10 @@ def _startup_greeting():
 
 def build_ui():
     with gr.Blocks(title="Крюинг-агентство «Меридиан»") as demo:
+        # В Gradio 6 у Blocks нет параметра css, поэтому подключаем стили
+        # ссылкой на файл, который отдаёт само приложение. Заодно правка
+        # внешнего вида не требует перезапуска сборки страницы.
+        gr.HTML("<link rel=\"stylesheet\" href=\"/static/style.css\">")
         with gr.Tab("Кандидат"):
             state = gr.State({})
             # Приветствие попадает в разметку сразу, при сборке страницы:
@@ -825,6 +904,11 @@ def build_app():
     # /docs, /redoc и /openapi.json отключены: адрес публичный, и
     # незачем публиковать инвентарь маршрутов бота.
     api = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    # Фон и стили отдаём сами: Gradio монтируется на корень, и обычного
+    # места для статики у него нет.
+    from fastapi.staticfiles import StaticFiles
+    api.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     @api.post("/telegram/webhook")
     async def telegram_webhook(request: Request):
