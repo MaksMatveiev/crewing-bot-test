@@ -1136,6 +1136,37 @@ def run_daily_publication() -> int:
             pass
 
 
+def publication_status() -> dict:
+    """Что бот думает о времени и сегодняшней публикации.
+
+    Нужна для проверки настройки: по ответу видно, в каком поясе он
+    считает час и не выложил ли уже сегодня. Секретов здесь нет.
+    """
+    now = publish_now()
+    status = {
+        "now": now.strftime("%d.%m %H:%M"),
+        "timezone": os.getenv("PUBLISH_TIMEZONE", "").strip() or "UTC",
+        "publish_hour": PUBLISH_HOUR,
+        "channel": bool(telegram.channel_configured()),
+    }
+    try:
+        conn = db.connect()
+    except RuntimeError:
+        return status
+    try:
+        if _ensure_schema(conn):
+            status["published_today"] = (
+                db.get_setting(conn, PUBLISH_MARK) == now.date().isoformat())
+    except Exception:
+        logger.exception("Не удалось прочитать отметку о публикации")
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    return status
+
+
 def start_daily_publication(interval_seconds: int = 300) -> None:
     """Завести часового, который раз в несколько минут смотрит на время.
 
@@ -2015,7 +2046,8 @@ def build_app():
         if not secret or not hmac.compare_digest(
                 str(given).encode("utf-8"), str(secret).encode("utf-8")):
             return Response(status_code=403)
-        return {"posted": run_daily_publication()}
+        posted = run_daily_publication()
+        return dict(publication_status(), posted=posted)
 
     @api.post("/telegram/webhook")
     async def telegram_webhook(request: Request):
