@@ -521,11 +521,13 @@ def test_broken_schema_init_does_not_crash_recruiter_tab(bot, fresh_attempts):
     """У рекрутера обёртки раньше не было вовсе — падало прямо в Gradio."""
     _break_schema_init(bot.db)
 
-    assert app.recruiter_vacancies("s3cret") == app.DB_SETUP_FAILED_TEXT
+    listed, _ = app.recruiter_vacancies("s3cret", "", "все")
+    assert listed == app.DB_SETUP_FAILED_TEXT
     assert app.recruiter_applications("s3cret") == app.DB_SETUP_FAILED_TEXT
-    assert app.recruiter_add_vacancy(
-        "s3cret", "AB", "container", 6, 1800, "", ""
+    assert app.recruiter_save_vacancy(
+        "s3cret", 0, "AB", "container", 6, 1800, "", ""
     ) == app.DB_SETUP_FAILED_TEXT
+    assert app.recruiter_toggle_vacancy("s3cret", 5, False) == app.DB_SETUP_FAILED_TEXT
     assert app.recruiter_open_slots(
         "s3cret", "2026-10-01", "10:00", "11:00", 30
     ) == app.DB_SETUP_FAILED_TEXT
@@ -758,3 +760,200 @@ def test_vacancy_line_shows_both_icons(bot):
     assert "📦" in line          # container
     assert "AB" in line and "container" in line
     assert "1." in line
+
+
+# --- Панель вакансий рекрутера --------------------------------------------
+
+
+def _row(vacancy_id, rank="2nd Engineer", vessel="bulk carrier", active=True):
+    return {
+        "id": vacancy_id,
+        "rank": rank,
+        "vessel_type": vessel,
+        "contract_months": 6,
+        "salary_usd": 6500,
+        "requirements": "опыт",
+        "screening_questions": ["STCW?", "Виза?"],
+        "is_active": active,
+    }
+
+
+def test_vacancy_list_shows_status_in_words():
+    """Статус подписан словом: значок один, а смотрят с телефона на солнце."""
+    text = app.format_vacancy_table([_row(1), _row(2, active=False)])
+
+    assert "открыта" in text
+    assert "закрыта" in text
+    assert "#1" in text and "#2" in text
+
+
+def test_vacancy_list_counts_screening_questions():
+    text = app.format_vacancy_table([_row(1)])
+    assert "вопросов скрининга: 2" in text
+
+
+def test_empty_vacancy_list_says_so():
+    assert app.format_vacancy_table([]) == "Ничего не найдено."
+
+
+def test_picker_starts_with_new_vacancy():
+    """Первый вариант — «новая»: форма ни к чему не привязана."""
+    choices = app.vacancy_choices([_row(7)])
+
+    assert choices[0] == (app.NEW_VACANCY_LABEL, 0)
+    assert choices[1][1] == 7
+
+
+def test_picker_marks_closed_vacancies():
+    choices = app.vacancy_choices([_row(3, active=False)])
+    assert "закрыта" in choices[1][0]
+
+
+def test_status_filter_translates_labels():
+    assert app._status_filter("открытые") == "open"
+    assert app._status_filter("закрытые") == "closed"
+    assert app._status_filter("все") is None
+
+
+def _unlocked(monkeypatch):
+    monkeypatch.setenv("RECRUITER_PASSWORD", "secret")
+    app._password_attempts["failures"] = 0
+    app._password_attempts["locked_until"] = 0.0
+    return "secret"
+
+
+def test_panel_refuses_wrong_password(monkeypatch):
+    """Скрытые поля — только внешний вид; проверка идёт на сервере."""
+    _unlocked(monkeypatch)
+    called = []
+    monkeypatch.setattr(app, "_open_conn", lambda: called.append(1) or (None, None))
+
+    text, _ = app.recruiter_vacancies("не тот пароль", "", "все")
+
+    assert "Неверный пароль" in text
+    assert called == []
+
+
+def test_save_refuses_wrong_password(monkeypatch):
+    _unlocked(monkeypatch)
+    monkeypatch.setattr(app, "_open_conn", lambda: (_ for _ in ()).throw(AssertionError))
+
+    assert "Неверный пароль" in app.recruiter_save_vacancy(
+        "не тот", 0, "AB", "tanker", 6, 1800, "", "")
+
+
+def test_toggle_refuses_wrong_password(monkeypatch):
+    _unlocked(monkeypatch)
+    monkeypatch.setattr(app, "_open_conn", lambda: (_ for _ in ()).throw(AssertionError))
+
+    assert "Неверный пароль" in app.recruiter_toggle_vacancy("не тот", 5, False)
+
+
+def test_save_requires_rank_and_vessel(monkeypatch):
+    password = _unlocked(monkeypatch)
+    monkeypatch.setattr(app, "_open_conn", lambda: (_ for _ in ()).throw(AssertionError))
+
+    assert "обязательны" in app.recruiter_save_vacancy(
+        password, 0, "", "tanker", 6, 1800, "", "")
+
+
+def test_save_rejects_words_instead_of_numbers(monkeypatch):
+    password = _unlocked(monkeypatch)
+    monkeypatch.setattr(app, "_open_conn", lambda: (_ for _ in ()).throw(AssertionError))
+
+    answer = app.recruiter_save_vacancy(
+        password, 0, "AB", "tanker", "полгода", 1800, "", "")
+
+    assert "целые числа" in answer
+
+
+def test_new_vacancy_without_questions_gets_default_set(monkeypatch):
+    password = _unlocked(monkeypatch)
+    saved = {}
+
+    def create_vacancy(conn, rank, vessel, months, salary, requirements, questions):
+        saved["questions"] = questions
+        return 42
+
+    monkeypatch.setattr(app, "_open_conn", lambda: (FakeConn(), None))
+    monkeypatch.setattr(app.db, "create_vacancy", create_vacancy)
+
+    answer = app.recruiter_save_vacancy(
+        password, 0, "AB", "tanker", 6, 1800, "опыт", "   ")
+
+    assert saved["questions"] == app.DEFAULT_SCREENING_QUESTIONS
+    assert "#42" in answer
+
+
+def test_chosen_vacancy_is_updated_not_duplicated(monkeypatch):
+    """С выбранной вакансией кнопка правит её, а не заводит вторую такую же."""
+    password = _unlocked(monkeypatch)
+    monkeypatch.setattr(app, "_open_conn", lambda: (FakeConn(), None))
+    monkeypatch.setattr(app.db, "create_vacancy",
+                        lambda *args: (_ for _ in ()).throw(AssertionError))
+    monkeypatch.setattr(app.db, "update_vacancy", lambda *args: True)
+
+    assert "#5 обновлена" in app.recruiter_save_vacancy(
+        password, 5, "AB", "tanker", 6, 1800, "опыт", "Вопрос?")
+
+
+def test_saving_a_vanished_vacancy_says_so(monkeypatch):
+    password = _unlocked(monkeypatch)
+    monkeypatch.setattr(app, "_open_conn", lambda: (FakeConn(), None))
+    monkeypatch.setattr(app.db, "update_vacancy", lambda *args: False)
+
+    assert "больше нет" in app.recruiter_save_vacancy(
+        password, 5, "AB", "tanker", 6, 1800, "", "Вопрос?")
+
+
+def test_toggle_needs_a_chosen_vacancy(monkeypatch):
+    password = _unlocked(monkeypatch)
+    monkeypatch.setattr(app, "_open_conn", lambda: (_ for _ in ()).throw(AssertionError))
+
+    assert "выберите вакансию" in app.recruiter_toggle_vacancy(password, 0, False).lower()
+
+
+def test_closing_and_reopening_report_what_happened(monkeypatch):
+    password = _unlocked(monkeypatch)
+    asked = []
+    monkeypatch.setattr(app, "_open_conn", lambda: (FakeConn(), None))
+    monkeypatch.setattr(app.db, "set_vacancy_active",
+                        lambda conn, vacancy_id, active: asked.append(active) or True)
+
+    closed = app.recruiter_toggle_vacancy(password, 5, False)
+    opened = app.recruiter_toggle_vacancy(password, 5, True)
+
+    assert asked == [False, True]
+    assert "закрыта" in closed
+    assert "открыта" in opened
+
+
+def test_panel_has_no_way_to_delete_a_vacancy():
+    """Удаления нет нигде: на вакансию ссылаются заявки кандидатов."""
+    assert not [name for name in dir(app) if "delete" in name.lower()]
+    assert not hasattr(app.db, "delete_vacancy")
+
+
+def test_form_is_cleared_for_a_new_vacancy(monkeypatch):
+    password = _unlocked(monkeypatch)
+    monkeypatch.setattr(app, "_open_conn", lambda: (_ for _ in ()).throw(AssertionError))
+
+    rank, vessel, months, salary, requirements, questions = \
+        app.recruiter_load_vacancy(password, 0)
+
+    assert (rank, vessel, requirements, questions) == ("", "", "", "")
+    assert months and salary
+
+
+def test_chosen_vacancy_fills_the_form(monkeypatch):
+    password = _unlocked(monkeypatch)
+    monkeypatch.setattr(app, "_open_conn", lambda: (FakeConn(), None))
+    monkeypatch.setattr(app.db, "get_vacancy", lambda conn, vacancy_id: _row(vacancy_id))
+
+    rank, vessel, months, salary, requirements, questions = \
+        app.recruiter_load_vacancy(password, 3)
+
+    assert rank == "2nd Engineer"
+    assert vessel == "bulk carrier"
+    assert (months, salary) == (6, 6500)
+    assert questions == "STCW?\nВиза?"

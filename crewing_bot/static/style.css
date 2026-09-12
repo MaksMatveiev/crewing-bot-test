@@ -162,3 +162,59 @@ body {
     -webkit-text-fill-color: #0b5e78 !important;
     text-decoration: underline;
 }
+
+/* Вкладка рекрутера: обычные кнопки и переключатели Gradio рисует
+   тёмно-серыми, и на белой карточке они выглядели чужеродно. Классы
+   Gradio хешированные, поэтому цепляемся за роль элемента, а не за имя
+   класса — оно меняется от сборки к сборке. */
+.gradio-container button.secondary,
+.gradio-container button.lg.secondary {
+    background: #ffffff !important;
+    color: #0b5e78 !important;
+    border: 1px solid #cfe3ef !important;
+    border-radius: 12px !important;
+    font-weight: 600;
+}
+
+.gradio-container button.secondary:hover {
+    background: #eef6fb !important;
+    border-color: #0e7490 !important;
+}
+
+.gradio-container label:has(input[type="radio"]),
+.gradio-container label:has(input[type="checkbox"]) {
+    background: #ffffff !important;
+    color: #05253f !important;
+    border: 1px solid #cfe3ef !important;
+    border-radius: 999px !important;
+}
+
+/* Выбранный вариант фильтра — морской волной, чтобы было видно сразу. */
+.gradio-container label:has(input[type="radio"]:checked) {
+    background: #e3f2f9 !important;
+    border-color: #0e7490 !important;
+    color: #0b5e78 !important;
+    font-weight: 600;
+}
+
+.gradio-container label:has(input[type="radio"]) span,
+.gradio-container label:has(input[type="checkbox"]) span {
+    color: inherit !important;
+    -webkit-text-fill-color: currentColor !important;
+}
+
+/* Выпадающий список вакансий */
+.gradio-container input[role="listbox"],
+.gradio-container ul[role="listbox"] {
+    background: #ffffff !important;
+    color: #05253f !important;
+    border-color: #cfe3ef !important;
+}
+
+/* Сам кружок переключателя браузер красит системным цветом — задаём свой. */
+.gradio-container input[type="radio"],
+.gradio-container input[type="checkbox"] {
+    accent-color: #0e7490;
+    background: #ffffff !important;
+    border: 1px solid #cfe3ef !important;
+}
