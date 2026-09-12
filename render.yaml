@@ -32,3 +32,5 @@ services:
         sync: false
       - key: PUBLISH_HOUR
         value: "8"
+      - key: SALARY_CURRENCY
+        value: "USD"

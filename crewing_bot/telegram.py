@@ -124,13 +124,15 @@ def agency_contacts() -> list:
 def build_vacancy_post(vacancy: dict, site_url: str = "") -> str:
     """Объявление для канала — в привычном морякам виде.
 
-    Сверху должность и ставка, ниже данные судна, внизу контакты. Пустые
-    поля пропускаются: строка «Built: —» не добавляет ничего.
+    В пост идёт всё, что о вакансии известно: ставка, дата посадки,
+    судно с годом постройки и дедвейтом, срок контракта, двигатель,
+    требования и вопросы, которые зададут на интервью. Пустые поля
+    пропускаются — строка «Built: —» не добавляет ничего.
     """
-    head = f"{vacancy['rank']} - ${vacancy['salary_usd']}"
-    lines = [head, ""]
+    currency = os.getenv("SALARY_CURRENCY", "USD").strip() or "USD"
+    lines = [f"{vacancy['rank']} - {vacancy['salary_usd']} {currency}", ""]
     if not vacancy.get("is_active", True):
-        lines = ["🚫 Вакансия закрыта", "", head, ""]
+        lines = ["🚫 Вакансия закрыта", ""] + lines
 
     embarkation = (vacancy.get("embarkation") or "").strip()
     lines.append(f"Date of Embarkation: {embarkation or 'ASAP'}")
@@ -143,7 +145,7 @@ def build_vacancy_post(vacancy: dict, site_url: str = "") -> str:
     vessel = str(vacancy["vessel_type"])
     lines.append(f"{vessel} - {dwt} DWT" if dwt else vessel)
 
-    lines.append(f"Contract duration: {vacancy['contract_months']} +/- 1 months")
+    lines.append(f"COE duration: {vacancy['contract_months']} +/- 1 months")
 
     engine = (vacancy.get("engine") or "").strip()
     if engine:
@@ -151,7 +153,14 @@ def build_vacancy_post(vacancy: dict, site_url: str = "") -> str:
 
     requirements = (vacancy.get("requirements") or "").strip()
     if requirements:
-        lines += ["", requirements]
+        lines += ["", f"Требования: {requirements}"]
+
+    questions = [str(question).strip()
+                 for question in (vacancy.get("screening_questions") or [])
+                 if str(question).strip()]
+    if questions:
+        lines += ["", "На интервью спросим:"]
+        lines += [f"• {question}" for question in questions]
 
     contacts = agency_contacts()
     if site_url and not os.getenv("SITE_URL", "").strip():

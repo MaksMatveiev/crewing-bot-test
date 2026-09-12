@@ -168,11 +168,11 @@ def test_post_shows_what_decides_at_a_glance(monkeypatch):
              engine="Wartsila 8R32E", embarkation="ASAP"),
         "https://example.com")
 
-    assert post.startswith("2nd Engineer - $6500")
+    assert post.startswith("2nd Engineer - 6500 USD")
     assert "Date of Embarkation: ASAP" in post
     assert "Built: 1996" in post
     assert "bulk carrier - 3274 DWT" in post
-    assert "Contract duration: 6 +/- 1 months" in post
+    assert "COE duration: 6 +/- 1 months" in post
     assert "Wartsila 8R32E" in post
     assert "https://example.com" in post
 
@@ -202,12 +202,35 @@ def test_post_carries_agency_contacts(monkeypatch):
     assert "https://example.com" in post
 
 
-def test_post_keeps_screening_questions_out():
-    """В канале нужен повод открыть сайт, а не вся внутренняя кухня."""
-    post = telegram.build_vacancy_post(
-        dict(_vacancy(), screening_questions=["Секретный вопрос?"]))
+def test_post_lists_interview_questions(monkeypatch):
+    """В объявление идёт всё, что о вакансии известно, — включая вопросы."""
+    monkeypatch.delenv("AGENCY_EMAIL", raising=False)
+    monkeypatch.delenv("AGENCY_PHONES", raising=False)
 
-    assert "Секретный вопрос" not in post
+    post = telegram.build_vacancy_post(
+        dict(_vacancy(), screening_questions=["Сколько опыта?", "Есть виза?"]))
+
+    assert "На интервью спросим:" in post
+    assert "• Сколько опыта?" in post
+    assert "• Есть виза?" in post
+
+
+def test_post_carries_requirements(monkeypatch):
+    monkeypatch.delenv("AGENCY_EMAIL", raising=False)
+    monkeypatch.delenv("AGENCY_PHONES", raising=False)
+
+    post = telegram.build_vacancy_post(
+        dict(_vacancy(), requirements="Опыт от 12 месяцев"))
+
+    assert "Требования: Опыт от 12 месяцев" in post
+
+
+def test_post_currency_is_configurable(monkeypatch):
+    monkeypatch.setenv("SALARY_CURRENCY", "EURO")
+
+    post = telegram.build_vacancy_post(_vacancy())
+
+    assert post.startswith("2nd Engineer - 6500 EURO")
 
 
 def test_closed_vacancy_is_marked_in_the_post():
