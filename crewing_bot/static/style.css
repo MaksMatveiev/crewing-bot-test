@@ -1550,3 +1550,15 @@ gradio-app,
         min-width: 0 !important;
     }
 }
+
+/* На телефоне вкладки стояли по левому краю своих половин — растягиваем
+   каждую на всю ячейку, надпись по центру. */
+@media (max-width: 620px) {
+    .gradio-container [role="tablist"] button[role="tab"] {
+        justify-self: stretch !important;
+        width: 100% !important;
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+    }
+}
