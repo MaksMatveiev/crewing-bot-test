@@ -923,3 +923,160 @@ gradio-app,
     overflow-wrap: anywhere;
     word-break: normal;
 }
+
+/* ==== Правки по замечаниям ============================================== */
+
+/* 1. Выбор должности вдвое мельче и не во всю ширину. */
+#rank-picker {
+    max-width: 460px !important;
+}
+
+#rank-picker input,
+#rank-picker span,
+.gradio-container ul[role="listbox"] li {
+    font-size: 20px !important;
+}
+
+#rank-picker input {
+    padding: 8px 12px !important;
+}
+
+/* 2. Шапка выше: надписи должны стоять с запасом, а не впритык. */
+.gradio-container [role="tablist"] {
+    min-height: 72px;
+    padding: 12px 26px !important;
+}
+
+.gradio-container [role="tablist"] button[role="tab"] {
+    padding: 12px 22px !important;
+    line-height: 1.3 !important;
+}
+
+.gradio-container [role="tablist"]::before {
+    line-height: 40px;
+    background-size: 40px 40px;
+    padding-left: 52px;
+}
+
+/* 3. Помощник шире, без лишних подложек и во всю высоту экрана. */
+#assistant-side {
+    flex: 0 0 620px !important;
+    min-width: 620px !important;
+    max-width: 620px !important;
+    position: sticky;
+    top: 16px;
+    align-self: flex-start;
+}
+
+#assistant-chat {
+    height: calc(100vh - 300px) !important;
+    min-height: 460px;
+    border: none !important;
+    background: transparent !important;
+}
+
+/* Под пузырём Gradio рисует ещё одну серую плашку и рамку — убираем,
+   оставляем сам пузырь. */
+#assistant-chat .message-wrap,
+#assistant-chat .bubble-wrap,
+#assistant-chat .message-row,
+#assistant-chat [class*="bubble"] {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+#assistant-chat .message {
+    font-size: 17px !important;
+    padding: 10px 14px !important;
+    box-shadow: none !important;
+}
+
+@media (max-width: 1200px) {
+    #assistant-side {
+        flex: 1 1 100% !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+        position: static;
+    }
+}
+
+/* 4. Кнопки одного роста и с одинаковыми промежутками. */
+.gradio-container button.primary,
+.gradio-container button.secondary {
+    min-height: 52px !important;
+    padding: 12px 20px !important;
+    font-size: 19px !important;
+}
+
+.gradio-container .row {
+    gap: 12px !important;
+}
+
+/* 5. Календарь: подписи одного размера и не вплотную к кнопкам. */
+#calendar-side .md p,
+#calendar-side p,
+#calendar-side h3 {
+    font-size: 19px !important;
+    margin: 14px 0 8px !important;
+}
+
+#calendar-side h3 {
+    font-weight: 700;
+}
+
+#calendar-grid p,
+#calendar-grid p strong {
+    font-size: 17px !important;
+    margin: 0 !important;
+}
+
+#hours-grid {
+    margin-top: 6px;
+}
+
+#calendar-side .row {
+    margin-bottom: 6px;
+}
+
+/* Пояснение под кнопками формы: ровная плашка по центру вместо строки
+   курсивом, прижатой к кнопкам. */
+.form-note {
+    margin: 18px auto 4px !important;
+    padding: 14px 20px;
+    max-width: 620px;
+    text-align: center;
+    font-size: 18px !important;
+    line-height: 1.5;
+    font-style: normal;
+    color: #5b6675 !important;
+    background: #f6f8fa;
+    border: 1px solid #e6e9e4;
+    border-radius: 14px;
+}
+
+/* Обёртка поля рисовала серую полосу во всю ширину — сужаем её вместе с
+   самим списком и убираем подложку. */
+#vacancy-side .form:has(#rank-picker) {
+    max-width: 460px !important;
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    margin-bottom: 10px;
+}
+
+#rank-picker {
+    border: 1px solid #e3e7ec !important;
+    border-radius: 12px !important;
+}
+
+/* Тёмная кнопка была на два пикселя ниже светлой: у светлой есть рамка,
+   и она входит в высоту. Даём тёмной прозрачную рамку той же толщины. */
+.gradio-container button.primary {
+    border: 1px solid transparent !important;
+    min-height: 56px !important;
+}
+
+.gradio-container button.secondary {
+    min-height: 56px !important;
+}

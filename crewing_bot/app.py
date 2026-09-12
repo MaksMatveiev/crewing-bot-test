@@ -1363,9 +1363,11 @@ def build_ui():
             with gr.Row():
                 with gr.Column(scale=3, elem_id="vacancy-side"):
                     gr.Markdown("## Вакансии")
+                    # Подпись поля не нужна: в самом списке написано
+                    # «Все должности», и что это выбор должности, видно.
                     rank_picker = gr.Dropdown(
                         choices=[(ALL_RANKS_LABEL, "")], value="",
-                        label="Должность", interactive=True,
+                        show_label=False, interactive=True,
                         elem_id="rank-picker")
                     browse_message = gr.Markdown("")
                     cards = _card_pool("Записаться на интервью")
@@ -1460,10 +1462,11 @@ def build_ui():
                                 close_button = gr.Button("Закрыть вакансию")
                                 reopen_button = gr.Button("Открыть снова")
                             form_message = gr.Markdown("")
-                            gr.Markdown(
-                                "_Удаления нет: на вакансию ссылаются заявки "
-                                "кандидатов. Закрытая вакансия просто не "
-                                "предлагается кандидату._")
+                            gr.HTML(
+                                "<p class='form-note'>Удаления нет —"
+                                " на вакансию ссылаются заявки кандидатов.<br>"
+                                "Закрытая вакансия просто не показывается"
+                                " кандидату.</p>")
 
                         recruiter_cards = _card_pool("Изменить", "secondary")
 
