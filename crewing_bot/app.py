@@ -582,8 +582,11 @@ def card_html(vacancy) -> str:
     closed = "" if vacancy.get("is_active", True) else (
         "<p class='vac-closed'>закрыта</p>")
     return (
+        # Без loading="lazy": внутри разметки, которую Gradio вставляет
+        # уже после отрисовки, браузер не начинал загрузку вовсе — на
+        # сервере вместо снимков оставались пустые прямоугольники.
         f"<div class='vac-photo'><img src='{vessel_photo(vacancy['vessel_type'])}'"
-        f" alt='{_escape(vacancy['vessel_type'])}' loading='lazy'></div>"
+        f" alt='{_escape(vacancy['vessel_type'])}'></div>"
         "<div class='vac-text'>"
         f"<p class='vac-vessel'>{_escape(vacancy['vessel_type'])}</p>"
         f"<h4>{_escape(vacancy['rank'])}</h4>"
