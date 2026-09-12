@@ -1594,3 +1594,88 @@ gradio-app,
     width: 100% !important;
     overflow-x: hidden !important;
 }
+
+/* --- Вкладки по центру шапки -------------------------------------------- */
+
+.gradio-container [role="tablist"] {
+    justify-content: center;
+}
+
+/* Название уходит влево, вкладки остаются по середине: без этого они
+   прижимались к правому краю. */
+.gradio-container [role="tablist"]::before {
+    position: absolute;
+    left: 26px;
+    margin-right: 0 !important;
+}
+
+.gradio-container [role="tablist"] {
+    position: relative;
+}
+
+/* --- Карточка: всё по центру, тип судна красным -------------------------- */
+
+.vac-card .vac-text {
+    text-align: center;
+}
+
+.vac-card h4,
+.vac-card .vac-meta,
+.vac-card .vac-salary,
+.vac-card .vac-closed {
+    text-align: center;
+}
+
+.gradio-container .vac-card .vac-vessel,
+.cards-grid .vac-card .vac-vessel {
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 17px !important;
+    font-weight: 700;
+    color: #c0392b !important;
+    margin: 10px 0 6px !important;
+}
+
+/* Надпись на кнопке в одну строку: на узкой карточке она ломалась
+   пополам и карточка росла вниз. */
+.gradio-container .vac-card button,
+.gradio-container .vac-card button.primary,
+.gradio-container .vac-card button.secondary {
+    white-space: nowrap !important;
+    font-size: 15px !important;
+    min-height: 42px !important;
+    padding: 8px 10px !important;
+}
+
+@media (max-width: 620px) {
+    .gradio-container .vac-card .vac-vessel,
+    .cards-grid .vac-card .vac-vessel {
+        font-size: 14px !important;
+    }
+
+    .gradio-container .vac-card button,
+    .gradio-container .vac-card button.primary,
+    .gradio-container .vac-card button.secondary {
+        font-size: 13px !important;
+        min-height: 38px !important;
+    }
+}
+
+/* Текст переписки на четверть крупнее: с телефона его читают на ходу. */
+#assistant-chat .message,
+#assistant-chat .message *,
+#assistant-chat .message .md,
+#assistant-chat .message span {
+    font-size: 18px !important;
+    line-height: 1.5 !important;
+}
+
+@media (max-width: 900px) {
+    #assistant-chat .message,
+    #assistant-chat .message *,
+    #assistant-chat .message .md,
+    #assistant-chat .message span {
+        font-size: 17px !important;
+    }
+}

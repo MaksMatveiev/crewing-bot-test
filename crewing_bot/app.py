@@ -1384,7 +1384,7 @@ def build_ui():
                         show_label=False, interactive=True,
                         elem_id="rank-picker")
                     browse_message = gr.Markdown("")
-                    cards = _card_pool("Записаться на интервью")
+                    cards = _card_pool("Записаться")
 
                 # Колонку помощника прячем целиком, а не только её
                 # содержимое: скрытая группа всё равно занимала бы место,
