@@ -441,6 +441,63 @@ def list_open_days(conn, limit: int = 14) -> list:
         return [{"day": row[0], "free": row[1]} for row in cur.fetchall()]
 
 
+def list_day_slots(conn, day: date) -> dict:
+    """Что открыто в этот день: время приёма → состояние слота.
+
+    Рекрутер отмечает часы по одному, поэтому календарю нужно знать не
+    число слотов, а какие именно часы заняты и какие свободны.
+    """
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT to_char(starts_at, 'HH24:MI') AS at, status FROM slots"
+            " WHERE starts_at::date = %s ORDER BY starts_at",
+            (day,),
+        )
+        return {row[0]: row[1] for row in cur.fetchall()}
+
+
+def open_slot(conn, day: date, hhmm: str, step_min: int = 30) -> bool:
+    """Открыть один приём. False, если такой слот уже есть.
+
+    Повторное нажатие по времени не должно плодить одинаковые слоты:
+    по часам в календаре кликают туда-сюда.
+    """
+    try:
+        moment = datetime.combine(day, datetime.strptime(hhmm, "%H:%M").time())
+    except ValueError:
+        raise ValueError("Время в формате ЧЧ:ММ, например 08:00.") from None
+
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO slots (starts_at, duration_min)"
+            " SELECT %s, %s WHERE NOT EXISTS ("
+            "   SELECT 1 FROM slots WHERE starts_at = %s)"
+            " RETURNING id",
+            (moment, int(step_min), moment),
+        )
+        return cur.fetchone() is not None
+
+
+def close_slot(conn, day: date, hhmm: str) -> bool:
+    """Снять свободный приём. False, если он занят или его нет.
+
+    Занятый слот не убираем никогда: за ним заявка живого человека,
+    которому уже назвали время.
+    """
+    try:
+        moment = datetime.combine(day, datetime.strptime(hhmm, "%H:%M").time())
+    except ValueError:
+        raise ValueError("Время в формате ЧЧ:ММ, например 08:00.") from None
+
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM slots WHERE starts_at = %s AND status = 'open'"
+            " RETURNING id",
+            (moment,),
+        )
+        return cur.fetchone() is not None
+
+
 def book_slot(conn, slot_id: int) -> bool:
     """Занять слот. False означает, что его уже заняли — предложи другой.
 

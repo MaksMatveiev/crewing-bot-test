@@ -12,7 +12,7 @@ import sys
 import time
 from calendar import monthrange
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import gradio as gr
@@ -574,16 +574,22 @@ def rank_choices(counts) -> list:
 
 
 def card_html(vacancy) -> str:
-    """Одна карточка: снимок судна и короткая выжимка."""
+    """Одна карточка: снимок судна и короткая выжимка.
+
+    Порядок как на витрине: сверху мелко тип флота, затем должность,
+    условия и ставка. Так глаз цепляется за должность, а не за цену.
+    """
+    closed = "" if vacancy.get("is_active", True) else (
+        "<p class='vac-closed'>закрыта</p>")
     return (
         f"<div class='vac-photo'><img src='{vessel_photo(vacancy['vessel_type'])}'"
         f" alt='{_escape(vacancy['vessel_type'])}' loading='lazy'></div>"
         "<div class='vac-text'>"
-        f"<h4>{_escape(vacancy['rank'])}</h4>"
         f"<p class='vac-vessel'>{_escape(vacancy['vessel_type'])}</p>"
+        f"<h4>{_escape(vacancy['rank'])}</h4>"
+        f"<p class='vac-meta'>контракт {vacancy['contract_months']} мес</p>"
         f"<p class='vac-salary'>${vacancy['salary_usd']} / мес</p>"
-        f"<p class='vac-meta'>контракт {vacancy['contract_months']} мес"
-        f"{'' if vacancy.get('is_active', True) else ' · закрыта'}</p>"
+        f"{closed}"
         "</div>"
     )
 
@@ -1062,90 +1068,169 @@ def _day_buttons(year, month, days_with_slots):
     return updates
 
 
-def _calendar_answer(year, month, days_with_slots, message=""):
-    open_days = sum(1 for counts in days_with_slots.values()
-                    if counts["free"] or counts["booked"])
-    booked = sum(counts["booked"] for counts in days_with_slots.values())
-    summary = (f"Открытых дней в этом месяце: {open_days}"
-               f" · записей на интервью: {booked}")
-    return [month_title(year, month), message or summary] + \
-        _day_buttons(year, month, days_with_slots)
-
-
 def _month_slots(conn, year, month):
     first = date(year, month, 1)
     last = date(year, month, monthrange(year, month)[1])
     return db.list_slot_days(conn, first, last)
 
 
-def recruiter_calendar(password: str, year: int, month: int, message: str = ""):
-    """Нарисовать месяц: заголовок, подпись и 42 клетки."""
+def interview_hours() -> list:
+    """Время приёмов рабочего дня: с 08:00 до 14:00 по полчаса."""
+    start = datetime.strptime(INTERVIEW_START, "%H:%M")
+    finish = datetime.strptime(INTERVIEW_END, "%H:%M")
+    hours = []
+    while start < finish:
+        hours.append(start.strftime("%H:%M"))
+        start += timedelta(minutes=INTERVIEW_STEP_MIN)
+    return hours
+
+
+INTERVIEW_HOURS = interview_hours()
+
+
+def _hour_buttons(open_at: dict):
+    """Обновления кнопок времени: зелёная — приём открыт.
+
+    Занятое время тоже зелёное, но нажать его нельзя: за ним стоит
+    человек, которому уже назвали час.
+    """
+    updates = []
+    for hhmm in INTERVIEW_HOURS:
+        status = open_at.get(hhmm)
+        updates.append(gr.update(
+            variant="primary" if status else "secondary",
+            interactive=status != "booked",
+        ))
+    return updates
+
+
+def _day_answer(year, month, day_number, open_at, days_with_slots, message=""):
+    """Полный ответ календаря: месяц, выбранный день, часы и подпись."""
+    chosen = ""
+    if day_number:
+        day = date(year, month, day_number)
+        chosen = f"**{day.strftime('%d.%m.%Y')}** — отметьте часы приёма"
+    return ([month_title(year, month), message, chosen]
+            + _day_buttons(year, month, days_with_slots)
+            + _hour_buttons(open_at))
+
+
+def _empty_day_answer(year, month, message=""):
+    return _day_answer(year, month, None, {}, {}, message)
+
+
+def recruiter_month(password: str, year: int, month: int, day_number=None,
+                    message: str = ""):
+    """Нарисовать месяц и, если день выбран, часы этого дня."""
     error = _guard(password)
     if error:
-        return [month_title(year, month), error] + \
-            _day_buttons(year, month, {})
+        return _empty_day_answer(year, month, error)
 
-    conn, error = _open_conn()
-    if error:
-        return [month_title(year, month), error] + \
-            _day_buttons(year, month, {})
+    conn, failure = _open_conn()
+    if failure:
+        return _empty_day_answer(year, month, failure)
     try:
         days = _month_slots(conn, year, month)
+        open_at = (db.list_day_slots(conn, date(year, month, day_number))
+                   if day_number else {})
     finally:
         conn.close()
-    return _calendar_answer(year, month, days, message)
+
+    if not message:
+        opened = sum(1 for counts in days.values()
+                     if counts["free"] or counts["booked"])
+        booked = sum(counts["booked"] for counts in days.values())
+        message = f"Открытых дней: {opened} · записей: {booked}"
+    return _day_answer(year, month, day_number, open_at, days, message)
 
 
-def recruiter_shift_month(password: str, year: int, month: int, step: int):
-    """Листнуть календарь на месяц назад или вперёд."""
-    year, month = shift_month(year, month, step)
-    return [year, month] + recruiter_calendar(password, year, month)
-
-
-def recruiter_toggle_day(password: str, year: int, month: int, number: int):
-    """Открыть день для интервью или снять его.
-
-    Открытый день — это слоты с 08:00 до 14:00 UTC по полчаса. Повторное
-    нажатие убирает свободные слоты, но занятые не трогает никогда: за
-    каждым стоит человек, которому уже назвали время.
-    """
-    error = _guard(password)
-    if error:
-        return recruiter_calendar(password, year, month, error)
-
+def recruiter_pick_day(password: str, year: int, month: int, number: int):
+    """Выбрать день — показать его часы. Ничего не меняет в базе."""
     try:
         day = date(year, month, int(number))
-    except ValueError:
-        return recruiter_calendar(password, year, month)
-    if day < date.today():
-        return recruiter_calendar(
-            password, year, month,
-            "⚠️ Прошедший день открыть нельзя.")
+    except (TypeError, ValueError):
+        return [0] + _empty_day_answer(year, month)
 
-    conn, error = _open_conn()
+    if day < date.today():
+        return [0] + recruiter_month(password, year, month, None,
+                                     "⚠️ Прошедший день открыть нельзя.")
+    return [int(number)] + recruiter_month(password, year, month, int(number))
+
+
+def recruiter_toggle_time(password: str, year: int, month: int, number: int,
+                          hhmm: str):
+    """Открыть или снять один приём выбранного дня."""
+    error = _guard(password)
     if error:
-        return recruiter_calendar(password, year, month, error)
+        return _empty_day_answer(year, month, error)
+    if not number:
+        return recruiter_month(password, year, month, None,
+                               "⚠️ Сначала выберите день в календаре.")
+
+    day = date(year, month, int(number))
+    conn, failure = _open_conn()
+    if failure:
+        return _empty_day_answer(year, month, failure)
     try:
-        known = db.list_slot_days(conn, day, day).get(day)
-        if known and (known["free"] or known["booked"]):
-            removed, left = db.close_free_day(conn, day)
-            if left:
-                message = (f"⚠️ {day.strftime('%d.%m')}: снято свободных "
-                           f"слотов {removed}, но {left} уже заняты — "
-                           "день остаётся открытым для них.")
-            else:
-                message = f"✅ {day.strftime('%d.%m')} закрыт, слотов снято: {removed}."
+        status = db.list_day_slots(conn, day).get(hhmm)
+        if status == "booked":
+            message = f"⚠️ {hhmm} уже занят кандидатом — час остаётся."
+        elif status == "open":
+            db.close_slot(conn, day, hhmm)
+            message = f"Снят приём {day.strftime('%d.%m')} в {hhmm}."
         else:
-            created = db.open_slots(conn, day, INTERVIEW_START, INTERVIEW_END,
-                                    INTERVIEW_STEP_MIN)
-            message = (f"✅ {day.strftime('%d.%m')} открыт: "
-                       f"{INTERVIEW_START}–{INTERVIEW_END} UTC, слотов {created}.")
-        days = _month_slots(conn, year, month)
+            db.open_slot(conn, day, hhmm, INTERVIEW_STEP_MIN)
+            message = f"Открыт приём {day.strftime('%d.%m')} в {hhmm}."
     except ValueError as failure:
-        return recruiter_calendar(password, year, month, f"⚠️ {failure}")
+        return recruiter_month(password, year, month, int(number),
+                               f"⚠️ {failure}")
     finally:
         conn.close()
-    return _calendar_answer(year, month, days, message)
+
+    return recruiter_month(password, year, month, int(number), message)
+
+
+def recruiter_whole_day(password: str, year: int, month: int, number: int,
+                        open_it: bool):
+    """Открыть или снять весь рабочий день разом."""
+    error = _guard(password)
+    if error:
+        return _empty_day_answer(year, month, error)
+    if not number:
+        return recruiter_month(password, year, month, None,
+                               "⚠️ Сначала выберите день в календаре.")
+
+    day = date(year, month, int(number))
+    if open_it and day < date.today():
+        return recruiter_month(password, year, month, None,
+                               "⚠️ Прошедший день открыть нельзя.")
+
+    conn, failure = _open_conn()
+    if failure:
+        return _empty_day_answer(year, month, failure)
+    try:
+        if open_it:
+            created = db.open_slots(conn, day, INTERVIEW_START, INTERVIEW_END,
+                                    INTERVIEW_STEP_MIN)
+            message = (f"{day.strftime('%d.%m')}: открыт весь день, "
+                       f"новых приёмов {created}.")
+        else:
+            removed, left = db.close_free_day(conn, day)
+            message = (f"{day.strftime('%d.%m')}: снято {removed}"
+                       + (f", занятых осталось {left}." if left else "."))
+    except ValueError as failure:
+        return recruiter_month(password, year, month, int(number),
+                               f"⚠️ {failure}")
+    finally:
+        conn.close()
+
+    return recruiter_month(password, year, month, int(number), message)
+
+
+def recruiter_month_step(password: str, year: int, month: int, step: int):
+    """Листнуть календарь. Выбранный день сбрасывается: он был в том месяце."""
+    year, month = shift_month(year, month, step)
+    return [year, month, 0] + recruiter_month(password, year, month)
 
 
 def _day_click(position: int):
@@ -1158,8 +1243,16 @@ def _day_click(position: int):
     def click(password, year, month):
         number = month_cells(year, month)[position]
         if number is None:
-            return recruiter_calendar(password, year, month)
-        return recruiter_toggle_day(password, year, month, number)
+            return [0] + recruiter_month(password, year, month)
+        return recruiter_pick_day(password, year, month, number)
+
+    return click
+
+
+def _hour_click(hhmm: str):
+    """Кнопка одного часа приёма в выбранном дне."""
+    def click(password, year, month, day_number):
+        return recruiter_toggle_time(password, year, month, day_number, hhmm)
 
     return click
 
@@ -1186,6 +1279,24 @@ def _edit_click(position: int):
         return recruiter_edit_vacancy(password, ids[position])
 
     return click
+
+
+
+
+
+def style_version() -> str:
+    """Отпечаток файла стилей для адреса ссылки.
+
+    Без него браузер держит старый style.css после выкладки, и рекрутер
+    видит вчерашнее оформление, пока не почистит кеш вручную. Отпечаток
+    меняется вместе с файлом — и ссылка вместе с ним.
+    """
+    try:
+        stamp = (STATIC_DIR / "style.css").stat().st_mtime_ns
+    except OSError:
+        # Файла нет — страница просто останется без оформления.
+        return "0"
+    return format(stamp & 0xFFFFFFFF, "x")
 
 
 CARDS_PER_ROW = 3
@@ -1216,21 +1327,6 @@ def _card_outputs(cards):
     return outputs
 
 
-def style_version() -> str:
-    """Отпечаток файла стилей для адреса ссылки.
-
-    Без него браузер держит старый style.css после выкладки, и рекрутер
-    видит вчерашнее оформление, пока не почистит кеш вручную. Отпечаток
-    меняется вместе с файлом — и ссылка вместе с ним.
-    """
-    try:
-        stamp = (STATIC_DIR / "style.css").stat().st_mtime_ns
-    except OSError:
-        # Файла нет — страница просто останется без оформления.
-        return "0"
-    return format(stamp & 0xFFFFFFFF, "x")
-
-
 def build_ui():
     with gr.Blocks(title="Крюинг-агентство «Меридиан»") as demo:
         # В Gradio 6 у Blocks нет параметра css, поэтому подключаем стили
@@ -1256,14 +1352,16 @@ def build_ui():
                 # и карточки оставались бы зажатыми.
                 with gr.Column(scale=1, elem_id="assistant-side",
                                visible=False) as assistant:
-                    with gr.Group():
-                        gr.Markdown("### Помощник")
-                        chat = gr.Chatbot(
-                            height=420, show_label=False,
-                            elem_id="assistant-chat")
-                        answer = gr.Textbox(
-                            placeholder="Ваш ответ…", show_label=False,
-                            lines=2, submit_btn="Отправить")
+                    gr.HTML(
+                        "<div class='assist-head'>"
+                        "<span class='assist-spark'>&#10022;</span>"
+                        "<span class='assist-name'>Помощник</span></div>"
+                        "<div class='assist-orb'></div>")
+                    chat = gr.Chatbot(
+                        height=380, show_label=False, elem_id="assistant-chat")
+                    answer = gr.Textbox(
+                        placeholder="Напишите ответ…", show_label=False,
+                        lines=1, submit_btn=True, elem_id="assistant-input")
 
             browse_outputs = [found_ids, browse_message] + _card_outputs(cards)
             rank_picker.change(candidate_browse, inputs=rank_picker,
@@ -1290,15 +1388,20 @@ def build_ui():
             # кандидатской: обе вкладки открыты в одном браузере разом.
             recruiter_ids = gr.State([])
 
-            with gr.Group() as login_box:
-                gr.Markdown("### Вход для рекрутера")
-                password = gr.Textbox(label="Пароль", type="password")
-                login_message = gr.Markdown("")
+            # Карточка входа держит свою ширину и стоит по центру: поле
+            # пароля во весь экран выглядит как ошибка вёрстки.
+            with gr.Column(elem_id="login-card") as login_box:
+                gr.Markdown("## Вход для рекрутера")
+                gr.Markdown("Введите пароль, чтобы открыть вакансии "
+                            "и календарь интервью.")
+                password = gr.Textbox(label="Пароль", type="password",
+                                      placeholder="••••••••")
                 login_button = gr.Button("Войти", variant="primary")
+                login_message = gr.Markdown("")
 
             with gr.Group(visible=False) as workspace:
-                with gr.Tabs():
-                    with gr.Tab("Вакансии"):
+                with gr.Row():
+                    with gr.Column(scale=3):
                         with gr.Row():
                             new_button = gr.Button("+ Новая вакансия",
                                                    variant="primary", scale=1)
@@ -1338,23 +1441,19 @@ def build_ui():
 
                         recruiter_cards = _card_pool("Изменить", "secondary")
 
-                    with gr.Tab("Календарь"):
-                        gr.Markdown(
-                            f"Нажмите на день — он откроется для интервью с "
-                            f"**{INTERVIEW_START} до {INTERVIEW_END} UTC** "
-                            f"(приёмы по {INTERVIEW_STEP_MIN} минут). Зелёный "
-                            "день уже открыт; нажатие на него снимает "
-                            "свободные слоты, а занятые оставляет.")
-
+                    # Календарь живёт рядом с вакансиями: рекрутер держит
+                    # перед глазами и места, и даты, не переключая вкладок.
+                    with gr.Column(scale=1, elem_id="calendar-side"):
                         today = date.today()
                         calendar_year = gr.State(today.year)
                         calendar_month = gr.State(today.month)
+                        chosen_day = gr.State(0)
 
-                        with gr.Row():
-                            previous_month = gr.Button("◀", scale=1)
+                        with gr.Row(elem_id="calendar-head"):
+                            previous_month = gr.Button("‹", scale=1)
                             month_label = gr.Markdown(
                                 f"### {month_title(today.year, today.month)}")
-                            next_month = gr.Button("▶", scale=1)
+                            next_month = gr.Button("›", scale=1)
 
                         with gr.Column(elem_id="calendar-grid"):
                             with gr.Row():
@@ -1369,15 +1468,29 @@ def build_ui():
                                                       scale=1))
 
                         calendar_message = gr.Markdown("")
-                        calendar_outputs = ([month_label, calendar_message]
-                                            + day_buttons)
+                        day_label = gr.Markdown("Выберите день в календаре")
+
+                        with gr.Column(elem_id="hours-grid"):
+                            hour_buttons = []
+                            for start in range(0, len(INTERVIEW_HOURS), 3):
+                                with gr.Row():
+                                    for hhmm in INTERVIEW_HOURS[start:start + 3]:
+                                        hour_buttons.append(
+                                            gr.Button(hhmm, scale=1))
+
+                        with gr.Row():
+                            open_all = gr.Button("Открыть весь день")
+                            close_all = gr.Button("Снять день")
 
                         gr.Markdown("### Кто записан")
                         applications_out = gr.Textbox(
-                            label="Заявки кандидатов", lines=12)
+                            label="Заявки кандидатов", lines=8)
                         gr.Button("Показать заявки").click(
                             recruiter_applications, inputs=session_password,
                             outputs=applications_out)
+
+                calendar_outputs = ([month_label, calendar_message, day_label]
+                                    + day_buttons + hour_buttons)
 
                 form_fields = [rank, vessel_type, contract_months, salary_usd,
                                requirements, questions_text]
@@ -1426,20 +1539,45 @@ def build_ui():
                     button.click(
                         _day_click(position),
                         inputs=[session_password, calendar_year, calendar_month],
+                        outputs=[chosen_day] + calendar_outputs,
+                    )
+
+                for hhmm, button in zip(INTERVIEW_HOURS, hour_buttons):
+                    button.click(
+                        _hour_click(hhmm),
+                        inputs=[session_password, calendar_year, calendar_month,
+                                chosen_day],
                         outputs=calendar_outputs,
                     )
 
+                open_all.click(
+                    lambda secret, year, month, day: recruiter_whole_day(
+                        secret, year, month, day, True),
+                    inputs=[session_password, calendar_year, calendar_month,
+                            chosen_day],
+                    outputs=calendar_outputs,
+                )
+                close_all.click(
+                    lambda secret, year, month, day: recruiter_whole_day(
+                        secret, year, month, day, False),
+                    inputs=[session_password, calendar_year, calendar_month,
+                            chosen_day],
+                    outputs=calendar_outputs,
+                )
+
                 previous_month.click(
-                    lambda secret, year, month: recruiter_shift_month(
+                    lambda secret, year, month: recruiter_month_step(
                         secret, year, month, -1),
                     inputs=[session_password, calendar_year, calendar_month],
-                    outputs=[calendar_year, calendar_month] + calendar_outputs,
+                    outputs=[calendar_year, calendar_month, chosen_day]
+                            + calendar_outputs,
                 )
                 next_month.click(
-                    lambda secret, year, month: recruiter_shift_month(
+                    lambda secret, year, month: recruiter_month_step(
                         secret, year, month, 1),
                     inputs=[session_password, calendar_year, calendar_month],
-                    outputs=[calendar_year, calendar_month] + calendar_outputs,
+                    outputs=[calendar_year, calendar_month, chosen_day]
+                            + calendar_outputs,
                 )
 
             def _login(entered):
@@ -1452,8 +1590,8 @@ def build_ui():
                         message,
                         "")
 
-            # После входа вкладки заполняются сами: иначе рекрутер видит
-            # пустоту и должен нажимать «Обновить» руками.
+            # После входа вакансии и календарь заполняются сами: иначе
+            # рекрутер видит пустоту и должен нажимать «Обновить» руками.
             login_button.click(
                 _login,
                 inputs=password,
@@ -1462,7 +1600,7 @@ def build_ui():
             ).then(
                 recruiter_browse, inputs=grid_inputs, outputs=grid_outputs
             ).then(
-                recruiter_calendar,
+                recruiter_month,
                 inputs=[session_password, calendar_year, calendar_month],
                 outputs=calendar_outputs,
             )

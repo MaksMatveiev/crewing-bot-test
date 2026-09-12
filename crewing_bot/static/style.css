@@ -29,7 +29,20 @@ gradio-app,
 html,
 body {
     min-height: 100%;
-    background: #eef1f5;
+    background: #0b3a5e;
+}
+
+/* Фотография моря и лёгкая вуаль поверх неё: без вуали белая карточка
+   теряется на светлых участках снимка. Снимок с Pexels лежит рядом с
+   приложением и отдаётся по адресу /static/sea.jpg. */
+body {
+    background-image:
+        linear-gradient(165deg, rgba(9, 46, 77, 0.5), rgba(6, 30, 52, 0.6)),
+        url("/static/sea.jpg");
+    background-size: cover, cover;
+    background-position: center, center;
+    background-repeat: no-repeat, no-repeat;
+    background-attachment: fixed, fixed;
 }
 
 /* Рабочее поле — три четверти экрана: карточки становятся в ряд, а не в
@@ -86,62 +99,83 @@ body {
     display: none !important;
 }
 
-/* --- Карточки вакансий -------------------------------------------------- */
+/* --- Карточки вакансий ---------------------------------------------------
+
+   Витринная раскладка: снимок лежит внутри карточки с полем, сверху
+   мелкая подпись флота, под ней должность, условия и ставка, а кнопка
+   занимает всю ширину. */
 
 .vac-card {
-    background: #ffffff !important;
-    border: 1px solid #e3e7ec !important;
-    border-radius: 18px !important;
+    background: #f3f5f2 !important;
+    border: 1px solid #e6e9e4 !important;
+    border-radius: 10px !important;
     overflow: hidden;
-    padding: 0 !important;
+    padding: 12px !important;
     gap: 0 !important;
-    box-shadow: 0 2px 10px rgba(16, 24, 40, 0.06);
 }
 
-/* Высота снимка фиксирована, а сам он обрезается по центру: у фотографий
-   разные пропорции, и без этого карточки в ряду разъезжались бы. */
+/* Снимок почти квадратный и обрезается по центру: у фотографий разные
+   пропорции, и без этого карточки в ряду разъезжались бы. */
 .vac-card .vac-photo img {
     width: 100%;
-    height: 150px;
+    aspect-ratio: 1 / 1;
+    height: auto;
     object-fit: cover;
     display: block;
-    background: #eef1f5;
+    border-radius: 4px;
+    background: #e7ebe6;
 }
 
 .vac-card .vac-text {
-    padding: 14px 16px 6px;
-}
-
-.vac-card h4 {
-    margin: 0 0 2px;
-    font-size: 19px;
-    font-weight: 700;
+    padding: 14px 2px 4px;
 }
 
 .vac-card .vac-vessel {
-    margin: 0 0 10px;
-    color: #5b6675 !important;
-    font-size: 16px;
+    margin: 0 0 6px;
+    color: #6b7a6e !important;
+    font-size: 14px;
 }
 
-.vac-card .vac-salary {
-    margin: 0 0 2px;
+.vac-card h4 {
+    margin: 0 0 6px;
     font-size: 20px;
     font-weight: 700;
-    color: #0e7490 !important;
+    color: #1a231c !important;
 }
 
 .vac-card .vac-meta {
-    margin: 0;
+    margin: 0 0 10px;
     font-size: 15px;
-    color: #5b6675 !important;
+    color: #6b7a6e !important;
 }
 
-.vac-card button {
-    margin: 12px 16px 16px !important;
-    border-radius: 12px !important;
+.vac-card .vac-salary {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #2f6b45 !important;
+}
+
+.vac-card .vac-closed {
+    margin: 8px 0 0;
+    font-size: 14px;
+    color: #8a6b2f !important;
+}
+
+/* Кнопка во всю ширину карточки, светлая с тонкой рамкой. Селектор
+   длиннее общего правила кнопок нарочно: иначе синий primary побеждал. */
+.gradio-container .vac-card button,
+.gradio-container .vac-card button.primary,
+.gradio-container .vac-card button.secondary {
+    width: 100% !important;
+    margin: 12px 0 0 !important;
+    background: #fbfcfa !important;
+    border: 1px solid #d7ded8 !important;
+    color: #2f6b45 !important;
+    border-radius: 6px !important;
     font-size: 16px !important;
     font-weight: 600;
+    padding: 10px 12px !important;
 }
 
 /* --- Помощник ------------------------------------------------------------ */
@@ -294,4 +328,272 @@ gradio-app,
 /* Карточек в ряду должно быть три: 320 px на каждую — это две. */
 .vac-card {
     min-width: 220px !important;
+    /* Ряд из одной карточки не должен растягивать её во всю ширину:
+       третья часть ряда минус промежутки — и она встаёт как в полном. */
+    flex: 0 1 calc(33.333% - 12px) !important;
+    max-width: calc(33.333% - 12px) !important;
+}
+
+@media (max-width: 900px) {
+    .vac-card {
+        flex: 0 1 calc(50% - 10px) !important;
+        max-width: calc(50% - 10px) !important;
+    }
+}
+
+@media (max-width: 620px) {
+    .vac-card {
+        flex: 1 1 100% !important;
+        max-width: 100% !important;
+    }
+}
+
+/* --- Кнопки с движением --------------------------------------------------
+
+   Присланный образец — компонент на React с Tailwind; здесь Gradio и
+   обычный CSS, поэтому взят сам эффект: тёмный круг разрастается из
+   середины, надпись сдвигается, углы скругляются мягче. Движение
+   короткое — кнопку жмут по многу раз за смену. */
+
+.gradio-container button.primary,
+.gradio-container button.secondary,
+.vac-card button {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+    transition: color .45s cubic-bezier(.23, 1, .32, 1),
+                border-color .45s ease,
+                border-radius .45s ease,
+                transform .12s ease;
+}
+
+.gradio-container button.primary::before,
+.gradio-container button.secondary::before,
+.vac-card button::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    transform: translate(-50%, -50%) scale(0);
+    background: #0b5e78;
+    opacity: 0;
+    z-index: -1;
+    transition: transform .5s cubic-bezier(.19, 1, .22, 1), opacity .3s ease;
+}
+
+.gradio-container button.secondary::before {
+    background: #0e7490;
+}
+
+.gradio-container button.primary:hover::before,
+.gradio-container button.secondary:hover::before,
+.vac-card button:hover::before {
+    transform: translate(-50%, -50%) scale(26);
+    opacity: 1;
+}
+
+.gradio-container button.secondary:hover,
+.vac-card button.secondary:hover {
+    color: #ffffff !important;
+    border-color: transparent !important;
+}
+
+.gradio-container button.primary:hover {
+    border-radius: 16px !important;
+}
+
+.gradio-container button:active {
+    transform: scale(.97);
+}
+
+/* Кнопки календаря живут своей жизнью: круг внутри клетки только мешал
+   бы понять, открыт день или нет. */
+#calendar-grid button::before,
+#hours-grid button::before {
+    display: none;
+}
+
+#calendar-grid button,
+#hours-grid button {
+    transition: background .2s ease, color .2s ease, transform .1s ease;
+}
+
+/* Тем, кто просил систему не анимировать, движения не показываем. */
+@media (prefers-reduced-motion: reduce) {
+    .gradio-container button,
+    .gradio-container button::before {
+        transition: none !important;
+    }
+}
+
+/* --- Помощник в духе присланного образца --------------------------------- */
+
+#assistant-side {
+    background: #ffffff;
+    border: 1px solid #e3e7ec;
+    border-radius: 20px;
+    padding: 16px 14px !important;
+    box-shadow: 0 10px 30px rgba(16, 24, 40, 0.08);
+}
+
+.assist-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    font-size: 17px;
+    color: #101828;
+}
+
+.assist-spark {
+    color: #1b8a4b;
+    font-size: 18px;
+}
+
+/* Зелёный шар над разговором — как на образце: мягкое свечение, а не
+   картинка, чтобы ничего не грузить со стороны. */
+.assist-orb {
+    width: 92px;
+    height: 92px;
+    margin: 14px auto 16px;
+    border-radius: 50%;
+    background:
+        radial-gradient(circle at 34% 30%, #d6ffe6 0%, #58d98b 34%,
+                        #17a94f 62%, #0c7a38 100%);
+    box-shadow: 0 0 0 14px rgba(27, 138, 75, 0.07),
+                0 0 34px rgba(27, 138, 75, 0.35);
+}
+
+#assistant-chat {
+    border: none !important;
+    background: transparent !important;
+}
+
+#assistant-input textarea,
+#assistant-input input[type="text"] {
+    border-radius: 14px !important;
+    border: 1px solid #e3e7ec !important;
+    background: #fbfcfd !important;
+}
+
+/* Круг разрастается и в карточных кнопках — цвет под витринную палитру. */
+.vac-card button::before {
+    background: #2f6b45;
+}
+
+.gradio-container .vac-card button:hover,
+.gradio-container .vac-card button.primary:hover,
+.gradio-container .vac-card button.secondary:hover {
+    color: #ffffff !important;
+    border-color: transparent !important;
+}
+
+/* --- Небольшой календарь рядом с вакансиями ------------------------------ */
+
+#calendar-side {
+    background: #ffffff;
+    border: 1px solid #e6e9e4;
+    border-radius: 16px;
+    padding: 16px 14px !important;
+    min-width: 260px;
+}
+
+#calendar-head h3 {
+    text-align: center;
+    margin: 2px 0 !important;
+    font-size: 19px !important;
+}
+
+#calendar-head button {
+    background: transparent !important;
+    border: none !important;
+    color: #6b7a6e !important;
+    font-size: 20px !important;
+    min-width: 0 !important;
+}
+
+#calendar-grid button {
+    padding: 6px 0 !important;
+    font-size: 15px !important;
+    background: transparent !important;
+    border: none !important;
+    color: #1a231c !important;
+}
+
+#calendar-grid button.primary {
+    background: #1b8a4b !important;
+    color: #ffffff !important;
+    border-radius: 10px !important;
+}
+
+#calendar-grid p {
+    text-align: center;
+    color: #97a19a !important;
+    font-size: 13px !important;
+    margin: 0 !important;
+}
+
+/* Часы приёма: открытый — зелёный, занятый — зелёный, но неактивный. */
+#hours-grid button {
+    padding: 8px 0 !important;
+    font-size: 15px !important;
+    border-radius: 10px !important;
+}
+
+#hours-grid button.primary {
+    background: #1b8a4b !important;
+    color: #ffffff !important;
+}
+
+#hours-grid button:disabled {
+    opacity: 0.75;
+    cursor: not-allowed;
+}
+
+/* --- Вход для рекрутера --------------------------------------------------
+
+   Узкая карточка по центру: поле пароля во весь экран читается как
+   недоделанная вёрстка. Ширина фиксированная, растягиваться нечему. */
+
+#login-card {
+    max-width: 420px !important;
+    width: 100% !important;
+    margin: 48px auto !important;
+    padding: 28px 26px !important;
+    background: #ffffff;
+    border: 1px solid #e6e9e4;
+    border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(16, 24, 40, 0.08);
+    flex-grow: 0 !important;
+}
+
+#login-card h2 {
+    text-align: center;
+    margin: 0 0 4px !important;
+    font-size: 24px !important;
+}
+
+#login-card p {
+    text-align: center;
+    color: #6b7a6e !important;
+    font-size: 15px !important;
+    margin: 0 0 6px !important;
+}
+
+#login-card button {
+    width: 100% !important;
+}
+
+/* Часы приёма в три столбца: в один они вытягивали колонку на экран. */
+#hours-grid button {
+    min-width: 0 !important;
+    flex: 1 1 0 !important;
+}
+
+#hours-grid .row {
+    flex-wrap: nowrap !important;
+    gap: 6px !important;
 }
