@@ -704,3 +704,125 @@ gradio-app,
 .gradio-container button[role="tab"][aria-selected="true"] {
     border-bottom-width: 3px !important;
 }
+
+/* --- Мелкие служебные подписи ---------------------------------------------
+
+   Названия полей, значения выпадающих списков и строки-пояснения Gradio
+   рисует своим мелким размером мимо нашего. Задаём явно — их читают с
+   телефона, часто на солнце. */
+
+.gradio-container label,
+.gradio-container label span,
+.gradio-container .block-label,
+.gradio-container .block-label span,
+.gradio-container [data-testid="block-label"] {
+    font-size: 21px !important;
+}
+
+.gradio-container p,
+.gradio-container li,
+.gradio-container .prose p,
+.gradio-container .md p {
+    font-size: 22px !important;
+}
+
+.gradio-container input[role="listbox"],
+.gradio-container select,
+.gradio-container option,
+.gradio-container ul[role="listbox"] li {
+    font-size: 23px !important;
+}
+
+/* Значение в выпадающем списке и подпись над ним не должны слипаться. */
+#rank-picker {
+    padding: 6px 4px !important;
+}
+
+/* Gradio задаёт подписям и полям свои 14 пикселей помимо наших правил —
+   поэтому размер задан прямо элементам, а не только через классы. */
+.gradio-container span,
+.gradio-container input,
+.gradio-container textarea,
+.gradio-container select {
+    font-size: 22px !important;
+}
+
+/* Кнопки, вкладки и шапка сохраняют собственные размеры. */
+.gradio-container button span,
+.site-head span {
+    font-size: inherit !important;
+}
+
+/* --- Календарь под крупный текст ----------------------------------------
+
+   Сетка из семи колонок в боковой полосе: при общем размере название
+   месяца переносилось на три строки. Здесь размеры чуть меньше общих,
+   но крупнее прежних, а колонка шире. */
+
+#calendar-side {
+    min-width: 330px;
+}
+
+#calendar-head h3 {
+    font-size: 24px !important;
+    white-space: nowrap;
+}
+
+#calendar-grid p,
+#calendar-grid p strong {
+    font-size: 17px !important;
+}
+
+#calendar-grid button {
+    font-size: 19px !important;
+    padding: 4px 0 !important;
+}
+
+#hours-grid button {
+    font-size: 19px !important;
+}
+
+#calendar-side .md p,
+#calendar-side p {
+    font-size: 19px !important;
+}
+
+/* Название месяца зажималось между стрелками в 75 пикселей и рвалось
+   посередине слова — отдаём ему всю оставшуюся ширину. */
+#calendar-head {
+    align-items: center;
+    gap: 4px !important;
+}
+
+#calendar-head > *:nth-child(2) {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+}
+
+#calendar-head p,
+#calendar-head h3 {
+    text-align: center;
+    white-space: nowrap !important;
+    margin: 0 !important;
+}
+
+#calendar-head button {
+    flex: 0 0 auto !important;
+    width: 36px !important;
+    min-width: 36px !important;
+    padding: 4px 0 !important;
+}
+
+/* Открытый день должен быть сплошным зелёным: Gradio подмешивал к фону
+   прозрачность, и отметка выглядела блёклой. */
+#calendar-grid button.primary,
+#hours-grid button.primary {
+    background-color: rgb(27, 138, 75) !important;
+    background-image: none !important;
+    opacity: 1 !important;
+}
+
+/* Стрелки и название месяца должны стоять в одну строку. */
+#calendar-head {
+    flex-wrap: nowrap !important;
+}
