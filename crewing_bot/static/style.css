@@ -18,10 +18,10 @@ gradio-app,
     --input-background-fill: #ffffff;
     --border-color-primary: #d6e8f3;
     --border-color-accent: #0e7490;
-    --body-text-color: #0b2a42;
-    --body-text-color-subdued: #4a6b84;
-    --block-title-text-color: #0b3a5e;
-    --block-label-text-color: #0b3a5e;
+    --body-text-color: #05253f;
+    --body-text-color-subdued: #2c5570;
+    --block-title-text-color: #062944;
+    --block-label-text-color: #062944;
     --link-text-color: #0e7490;
     --color-accent: #0e7490;
     --color-accent-soft: #e3f2f9;
@@ -48,25 +48,27 @@ body {
 }
 
 .gradio-container {
+    font-size: 17px;
+    line-height: 1.55;
     max-width: 940px !important;
     margin: 36px auto !important;
     padding: 26px 30px 30px !important;
     background: #ffffff !important;
     border-radius: 24px;
     box-shadow: 0 26px 70px rgba(3, 22, 40, 0.5);
-    color: #0b2a42;
+    color: #05253f;
 }
 
 .gradio-container h1,
 .gradio-container h2,
 .gradio-container h3 {
-    color: #0b3a5e !important;
+    color: #062944 !important;
 }
 
 /* Вкладки «Кандидат» и «Рекрутер» */
 .gradio-container button[role="tab"] {
     font-weight: 600;
-    color: #45677f !important;
+    color: #2c5570 !important;
 }
 
 .gradio-container button[role="tab"][aria-selected="true"] {
@@ -80,7 +82,7 @@ body {
     background: #eef6fb !important;
     border: 1px solid #d6e8f3 !important;
     border-radius: 18px 18px 18px 6px !important;
-    color: #0b2a42 !important;
+    color: #05253f !important;
 }
 
 .gradio-container [data-testid="user"],
@@ -98,7 +100,7 @@ body {
     border-radius: 14px !important;
     border: 1px solid #cfe3ef !important;
     background: #ffffff !important;
-    color: #0b2a42 !important;
+    color: #05253f !important;
 }
 
 .gradio-container button.primary,
@@ -111,4 +113,23 @@ body {
 
 .gradio-container footer {
     opacity: 0.5;
+}
+
+/* Текст крупнее и контрастнее: бот читают с телефона, часто на солнце. */
+.gradio-container [data-testid="bot"],
+.gradio-container [data-testid="user"],
+.gradio-container .message {
+    font-size: 17px !important;
+    line-height: 1.55 !important;
+}
+
+.gradio-container textarea,
+.gradio-container input[type="text"],
+.gradio-container input[type="password"] {
+    font-size: 17px !important;
+}
+
+.gradio-container h1 {
+    font-size: 30px !important;
+    font-weight: 700 !important;
 }
