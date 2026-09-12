@@ -26,6 +26,12 @@ gradio-app,
     --button-primary-text-color: #ffffff;
 }
 
+/* Весь текст в полтора раза крупнее: Gradio считает свои размеры от
+   корневого, поэтому одной строкой растёт и то, что мы не описывали. */
+html {
+    font-size: 24px !important;
+}
+
 html,
 body {
     min-height: 100%;
@@ -48,7 +54,7 @@ body {
 /* Рабочее поле — три четверти экрана: карточки становятся в ряд, а не в
    одну колонку. Ниже 1100 px запаса ширины нет, и поля только мешают. */
 .gradio-container {
-    font-size: 18px;
+    font-size: 27px !important;
     line-height: 1.6;
     width: 75vw !important;
     max-width: 75vw !important;
@@ -77,14 +83,14 @@ body {
 }
 
 .gradio-container h2 {
-    font-size: 26px !important;
+    font-size: 39px !important;
     font-weight: 700 !important;
     margin-bottom: 4px !important;
 }
 
 /* Вкладки «Кандидат» и «Рекрутер» */
 .gradio-container button[role="tab"] {
-    font-size: 17px;
+    font-size: 26px !important;
     font-weight: 600;
     color: #5b6675 !important;
 }
@@ -133,32 +139,32 @@ body {
 .vac-card .vac-vessel {
     margin: 0 0 6px;
     color: #6b7a6e !important;
-    font-size: 14px;
+    font-size: 21px !important;
 }
 
 .vac-card h4 {
     margin: 0 0 6px;
-    font-size: 20px;
+    font-size: 30px !important;
     font-weight: 700;
     color: #1a231c !important;
 }
 
 .vac-card .vac-meta {
     margin: 0 0 10px;
-    font-size: 15px;
+    font-size: 22px !important;
     color: #6b7a6e !important;
 }
 
 .vac-card .vac-salary {
     margin: 0;
-    font-size: 18px;
+    font-size: 27px !important;
     font-weight: 600;
     color: #2f6b45 !important;
 }
 
 .vac-card .vac-closed {
     margin: 8px 0 0;
-    font-size: 14px;
+    font-size: 21px !important;
     color: #8a6b2f !important;
 }
 
@@ -173,7 +179,7 @@ body {
     border: 1px solid #d7ded8 !important;
     color: #2f6b45 !important;
     border-radius: 6px !important;
-    font-size: 16px !important;
+    font-size: 24px !important;
     font-weight: 600;
     padding: 10px 12px !important;
 }
@@ -227,7 +233,7 @@ body {
     border: 1px solid #e3e7ec !important;
     background: #ffffff !important;
     color: #101828 !important;
-    font-size: 17px !important;
+    font-size: 26px !important;
 }
 
 .gradio-container button.primary,
@@ -236,7 +242,7 @@ body {
     border: none !important;
     color: #ffffff !important;
     border-radius: 12px !important;
-    font-size: 16px !important;
+    font-size: 24px !important;
     font-weight: 600;
 }
 
@@ -285,7 +291,7 @@ body {
     background: #ffffff !important;
     color: #101828 !important;
     border-color: #e3e7ec !important;
-    font-size: 17px !important;
+    font-size: 26px !important;
 }
 
 /* --- Календарь интервью -------------------------------------------------- */
@@ -303,7 +309,7 @@ body {
 #calendar-grid button {
     min-width: 0 !important;
     border-radius: 12px !important;
-    font-size: 17px !important;
+    font-size: 26px !important;
 }
 
 /* Пустые клетки в начале и конце месяца: место занимают, глаз не ловят. */
@@ -374,14 +380,17 @@ gradio-app,
     position: absolute;
     top: 50%;
     left: 50%;
-    width: 12px;
-    height: 12px;
+    /* Круг шире кнопки по диагонали: иначе заливка не доходила до
+       краёв и в середине оставался тёмный прямоугольник. */
+    width: 150%;
+    aspect-ratio: 1 / 1;
+    height: auto;
     border-radius: 50%;
     transform: translate(-50%, -50%) scale(0);
     background: #0b5e78;
     opacity: 0;
     z-index: -1;
-    transition: transform .5s cubic-bezier(.19, 1, .22, 1), opacity .3s ease;
+    transition: transform .5s cubic-bezier(.19, 1, .22, 1), opacity .25s ease;
 }
 
 .gradio-container button.secondary::before {
@@ -391,7 +400,7 @@ gradio-app,
 .gradio-container button.primary:hover::before,
 .gradio-container button.secondary:hover::before,
 .vac-card button:hover::before {
-    transform: translate(-50%, -50%) scale(26);
+    transform: translate(-50%, -50%) scale(1);
     opacity: 1;
 }
 
@@ -444,13 +453,13 @@ gradio-app,
     align-items: center;
     gap: 8px;
     font-weight: 700;
-    font-size: 17px;
+    font-size: 26px !important;
     color: #101828;
 }
 
 .assist-spark {
     color: #1b8a4b;
-    font-size: 18px;
+    font-size: 27px !important;
 }
 
 /* Зелёный шар над разговором — как на образце: мягкое свечение, а не
@@ -504,20 +513,20 @@ gradio-app,
 #calendar-head h3 {
     text-align: center;
     margin: 2px 0 !important;
-    font-size: 19px !important;
+    font-size: 28px !important;
 }
 
 #calendar-head button {
     background: transparent !important;
     border: none !important;
     color: #6b7a6e !important;
-    font-size: 20px !important;
+    font-size: 30px !important;
     min-width: 0 !important;
 }
 
 #calendar-grid button {
     padding: 6px 0 !important;
-    font-size: 15px !important;
+    font-size: 22px !important;
     background: transparent !important;
     border: none !important;
     color: #1a231c !important;
@@ -532,14 +541,14 @@ gradio-app,
 #calendar-grid p {
     text-align: center;
     color: #97a19a !important;
-    font-size: 13px !important;
+    font-size: 20px !important;
     margin: 0 !important;
 }
 
 /* Часы приёма: открытый — зелёный, занятый — зелёный, но неактивный. */
 #hours-grid button {
     padding: 8px 0 !important;
-    font-size: 15px !important;
+    font-size: 22px !important;
     border-radius: 10px !important;
 }
 
@@ -573,13 +582,13 @@ gradio-app,
 #login-card h2 {
     text-align: center;
     margin: 0 0 4px !important;
-    font-size: 24px !important;
+    font-size: 36px !important;
 }
 
 #login-card p {
     text-align: center;
     color: #6b7a6e !important;
-    font-size: 15px !important;
+    font-size: 22px !important;
     margin: 0 0 6px !important;
 }
 
